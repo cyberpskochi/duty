@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex,nofollow" />
+<title>Duty Management System — Cyber Crime PS, Kochi City</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6l-9-4Z' fill='%23132038' stroke='%23c9962f' stroke-width='1.6'/%3E%3Cpath d='M9 12l2 2 4-4' stroke='%237fe7de' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+</head>
+<body>
+
+<!-- ======================= LOGIN ======================= -->
+<section id="loginScreen" class="login-screen" hidden>
+  <div class="login-grid" aria-hidden="true"></div>
+  <div class="login-card">
+    <div class="login-emblem">
+      <svg viewBox="0 0 64 64" width="76" height="76" aria-hidden="true">
+        <defs><linearGradient id="lg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c2f4e"/><stop offset="1" stop-color="#0b1526"/></linearGradient></defs>
+        <path d="M32 4 8 13v17c0 14 10.5 24.5 24 30 13.5-5.5 24-16 24-30V13L32 4Z" fill="url(#lg1)" stroke="#c9962f" stroke-width="2.4"/>
+        <path d="M32 11 14 18v12c0 10.5 7.6 18.6 18 23 10.4-4.4 18-12.5 18-23V18L32 11Z" fill="none" stroke="rgba(201,150,47,.45)" stroke-width="1"/>
+        <circle cx="32" cy="29" r="9" fill="none" stroke="#7fe7de" stroke-width="2"/>
+        <path d="M32 20v-4M32 42v-4M23 29h-4M45 29h-4" stroke="#7fe7de" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="32" cy="29" r="3" fill="#7fe7de"/>
+      </svg>
+    </div>
+    <div class="login-eyebrow">Kerala Police</div>
+    <h1 class="login-title">Cyber Crime Police Station</h1>
+    <div class="login-sub">Kochi City</div>
+    <div class="login-divider"><span>Duty Management System</span></div>
+
+    <div id="loginLoading" class="login-loading"><span class="spinner"></span> Preparing secure sign-in…</div>
+    <div id="gsiButton" class="gsi-wrap"></div>
+    <div id="demoLogin" class="demo-login" hidden></div>
+    <div id="loginError" class="login-error" hidden></div>
+
+    <p class="login-note">
+      <svg viewBox="0 0 24 24" width="14" height="14"><path d="M6 10V8a6 6 0 1 1 12 0v2m-13 0h14v11H5V10Z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+      Only Gmail IDs authorised by the Station Administrator can sign in.<br>All sign-in attempts and activity are recorded.
+    </p>
+  </div>
+  <div class="login-foot">Cyber Crime PS, Kochi City · Internal use only · Designed &amp; developed by ARUN R</div>
+</section>
+
+<!-- ======================= APP ======================= -->
+<div id="appShell" class="app" hidden>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" width="38" height="38" aria-hidden="true">
+        <path d="M32 4 8 13v17c0 14 10.5 24.5 24 30 13.5-5.5 24-16 24-30V13L32 4Z" fill="#132038" stroke="#c9962f" stroke-width="3"/>
+        <circle cx="32" cy="29" r="9" fill="none" stroke="#7fe7de" stroke-width="2.6"/>
+        <circle cx="32" cy="29" r="3.2" fill="#7fe7de"/>
+      </svg>
+      <div class="brand-text">
+        <div class="brand-1">CYBER PS</div>
+        <div class="brand-2">Kochi City · Duty MS</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-user" id="sideUser"></div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-only menu-btn" id="menuBtn" aria-label="Menu"></button>
+      <div class="page-heading">
+        <div class="crumb" id="crumb">Cyber Crime PS · Kochi City</div>
+        <h1 id="pageTitle">Dashboard</h1>
+      </div>
+      <div class="top-right">
+        <div class="clock mono" id="clock"></div>
+        <button class="sync-pill" id="syncPill" type="button" title="Storage status"></button>
+        <div class="user-chip" id="userChip"></div>
+      </div>
+    </header>
+    <div id="banner"></div>
+    <main id="page" class="page"></main>
+    <footer class="app-foot">Cyber Crime PS, Kochi City — Duty Management System · Data stored in the station's Google Drive · Designed &amp; developed by ARUN R</footer>
+  </div>
+</div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="modalRoot"></div>
+<div id="popRoot"></div>
+
+<script src="js/config.js"></script>
+<script src="js/tips.js"></script>
+<script src="js/local-backend.js"></script>
+<script src="js/core.js"></script>
+<script src="js/report.js"></script>
+<script src="js/pages.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
