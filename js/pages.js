@@ -416,9 +416,6 @@ function renderParade(el){
       <span class="pc-rank">${esc(displayRank(p.rank))}</span><span class="pc-name">${esc(p.name)}${p.attached?" <em>(Attd)</em>":""}</span>
       <span class="pc-reason">${esc(st.reason)}${st.manual?" · manual":""}</span>
       ${ed?`<button class="icon-only pc-move" title="${st.status==="on"?"Move to Off Parade":"Move to On Parade"}">${ic("swap")}</button>`:""}</li>`;
-  const rows=Math.max(on.length,off.length);
-  let rep="";
-  for(let i=0;i<rows;i++){ const o=on[i], f=off[i]; rep+=`<tr><td>${i+1}</td><td class="officers-cell">${o?officerChip(o.p):""}</td><td class="officers-cell">${f?officerChip(f.p,f.st.reason):""}</td></tr>`; }
   el.innerHTML=`
   <div class="toolbar no-print">
     <div class="date-nav">
@@ -445,10 +442,9 @@ function renderParade(el){
     </div>
   </div>
   <div class="sheet">
-    <div class="sheet-title-row"><div class="sheet-title">Friday Parade — ${dateDisplay(UI.friday)}</div></div>
+    <div class="sheet-title-row"><div class="sheet-title">Friday Parade Statement — ${dateDisplay(UI.friday)}</div></div>
     <div class="sheet-sub">${esc(stationLine())}</div>
-    <div class="table-wrap"><table class="grid-table duty-report"><thead><tr><th style="width:7%">Sl No</th><th style="width:46%">On Parade (${on.length})</th><th>Off Parade — Reason (${off.length})</th></tr></thead>
-    <tbody>${rep||'<tr><td colspan="3" class="empty-note">No personnel on the roster.</td></tr>'}</tbody></table></div>
+    <div class="table-wrap">${paradeStatementHtml(key,false)}</div>
   </div>`;
   const go=d=>{ UI.friday=snapToFriday(d); renderParade(el); updateHash(); };
   $("#pPrev",el).onclick=()=>go(addDays(UI.friday,-7));

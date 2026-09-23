@@ -299,6 +299,12 @@ tr.row-selected td{background:#eef4ff !important;}
 .parade-chip-item .pc-reason{color:var(--muted);font-size:11px;white-space:nowrap;}
 .parade-chip-item.manual .pc-reason{color:var(--gold-2);font-weight:600;}
 
+table.parade-statement td{vertical-align:middle;}
+table.parade-statement td.ps-names{line-height:1.7;font-weight:600;}
+table.parade-statement td.ps-part,table.parade-statement td.ps-rank{font-weight:700;background:#f7f7f7;}
+table.parade-statement td.ps-nil{color:#aaa;}
+table.parade-statement td.ps-total{font-weight:700;background:#f2f2f2;}
+table.parade-statement td.ps-gap{border-left:none;border-right:none;height:10px;background:#fff;}
 /* ------------------------------ ATTENDANCE ------------------------------ */
 .att-wrap{overflow:auto;max-height:70vh;border-top:1px solid var(--line-2);}
 table.att{border-collapse:separate;border-spacing:0;font-size:12px;min-width:100%;}

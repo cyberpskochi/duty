@@ -270,32 +270,106 @@ function exportDutyPdf(key){
 }
 
 /* ------------------------------------------------------------ parade exports */
+/* Friday Parade statement — rank-wise, in the station's standard format:
+   Particulars | Rank | Name | Count, On Parade block, Off Parade block
+   (with duty / reason against each name), totals and grand total. */
+const PARADE_RANK_GROUPS=[
+  {label:"ACP",ranks:["ACP"]},
+  {label:"IP",ranks:["IP"]},
+  {label:"SI/Tele SI",ranks:["SI","SI Tele"]},
+  {label:"ASI",ranks:["ASI"]},
+  {label:"SCPO/Tele HC",ranks:["SCPO","HC Tele"]},
+  {label:"CPO/Tele PC",ranks:["CPO","PC Tele","PC DVR","AR CPO"]}
+];
+function paradeGroupFor(rank){
+  const b=baseRank(rank);
+  return PARADE_RANK_GROUPS.find(g=>g.ranks.includes(b))||PARADE_RANK_GROUPS[PARADE_RANK_GROUPS.length-1];
+}
+function ddmm(d){ return pad(d.getDate())+"/"+pad(d.getMonth()+1); }
+function paradeReasonText(p,st,fridayKey){
+  const fri=dateFromKey(fridayKey), thu=addDays(fri,-1);
+  const r=String(st.reason||"").trim();
+  const note=((S.records[fridayKey]||{}).assignments||{})[p.id];
+  const extra=note&&note.note?" ("+note.note+")":"";
+  if(r==="Ongoing Night GD") return "Night Duty "+ddmm(thu);
+  if(/night gd/i.test(r)) return "Night Duty "+ddmm(fri)+extra;
+  if(isOffDuty(r)) return codeForOffLabel(r)+extra;
+  if(!r||r==="Present") return "Off parade";
+  return r+extra;
+}
+function paradeNameText(p,group,withReason,st,key){
+  let n=p.name+(p.attached?" (Attd)":"");
+  const b=baseRank(p.rank);
+  if(group.ranks.length>1&&b!==group.ranks[0]) n+=" ("+displayRank(p.rank)+")";
+  if(withReason) n+=" – "+paradeReasonText(p,st,key);
+  return n;
+}
+function computeParadeStatement(key){
+  const {on,off}=computeParadeList(key);
+  const build=(list,withReason)=>PARADE_RANK_GROUPS.map(g=>({label:g.label,names:list.filter(x=>paradeGroupFor(x.p.rank)===g).map(x=>paradeNameText(x.p,g,withReason,x.st,key))}));
+  return {on:build(on,false),off:build(off,true),onTotal:on.length,offTotal:off.length};
+}
+/** HTML table (used on screen, for printing and for Excel). */
+function paradeStatementHtml(key,forExcel){
+  const st=computeParadeStatement(key);
+  const B=forExcel?' style="border:1px solid #000;padding:5px 8px;vertical-align:middle;"':"";
+  const H=forExcel?' style="border:1px solid #000;padding:6px 8px;background:#132038;color:#fff;font-weight:bold;"':"";
+  const T=(bg)=>forExcel?` style="border:1px solid #000;padding:6px 8px;font-weight:bold;text-align:center;background:${bg};"`:` class="ps-total"`;
+  const block=(title,groups,total,bg)=>{
+    let h="";
+    groups.forEach((g,i)=>{
+      const names=g.names.length?g.names.map(esc).join("<br>"):"";
+      h+=`<tr>${i===0?`<td rowspan="${groups.length}"${B} class="ps-part"><b>${title}</b></td>`:""}<td${B} class="ps-rank"><b>${esc(g.label)}</b></td>`+
+        (g.names.length?`<td${B} class="ps-names">${names}</td><td${B} class="ps-count"><b>${g.names.length}</b></td>`:`<td colspan="2"${B} class="ps-nil">—</td>`)+`</tr>`;
+    });
+    h+=`<tr><td colspan="3"${T(bg)}>TOTAL ${title.toUpperCase()}</td><td${T(bg)}>${total}</td></tr>`;
+    return h;
+  };
+  let h=`<table${forExcel?' border="1" cellspacing="0" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:12px;text-align:center;"':' class="grid-table parade-statement"'}>`;
+  h+=`<thead><tr><th${H} style="${forExcel?"":"width:16%"}">Particulars</th><th${H}>RANK</th><th${H}>Name</th><th${H}>Count</th></tr></thead><tbody>`;
+  h+=block("On Parade",st.on,st.onTotal,"#e5f4ea");
+  h+=`<tr><td colspan="4"${forExcel?' style="border:none;height:8px;"':' class="ps-gap"'}></td></tr>`;
+  h+=block("Off Parade",st.off,st.offTotal,"#fbe9e5");
+  h+=`<tr><td colspan="3"${T("#f6c9b8")}>GRAND TOTAL</td><td${T("#f6c9b8")}>${st.onTotal+st.offTotal}</td></tr>`;
+  h+="</tbody></table>";
+  return h;
+}
 function exportParadeExcel(key){
-  const d=dateFromKey(key); const {on,off}=computeParadeList(key);
-  const NAVY="#132038",GOLD="#c9962f",GREEN="#2f7a4f",RED="#a5341f";
-  const rows=Math.max(on.length,off.length,1);
+  const d=dateFromKey(key);
   let h=excelA4Head("Friday Parade");
-  h+=`<table border="1" cellspacing="0" cellpadding="8" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:12px;">`;
-  h+=`<tr><td colspan="3" style="text-align:center;font-size:17px;font-weight:bold;padding:12px;background:${NAVY};color:#fff;">FRIDAY PARADE — ${dateDisplay(d)}</td></tr>`;
-  h+=`<tr><td colspan="3" style="text-align:center;font-style:italic;background:${GOLD};font-weight:bold;">${esc(stationLine())}</td></tr>`;
-  h+=`<tr style="font-weight:bold;color:#fff;"><td style="background:${NAVY};">Sl No</td><td style="background:${GREEN};">On Parade (${on.length})</td><td style="background:${RED};">Off Parade — Reason (${off.length})</td></tr>`;
-  for(let i=0;i<rows;i++){
-    const o=on[i], f=off[i];
-    h+=`<tr><td>${i+1}</td><td>${o?esc(`${displayRank(o.p.rank)} ${o.p.name}${o.p.attached?" (Attd)":""}`):""}</td><td>${f?esc(`${displayRank(f.p.rank)} ${f.p.name}${f.p.attached?" (Attd)":""} — ${f.st.reason}`):""}</td></tr>`;
-  }
-  h+="</table></body></html>";
+  h+=`<table border="0" style="font-family:Calibri,Arial,sans-serif;"><tr><td colspan="4" style="text-align:center;font-size:16px;font-weight:bold;">FRIDAY PARADE STATEMENT — ${dateDisplay(d)}</td></tr>`;
+  h+=`<tr><td colspan="4" style="text-align:center;font-weight:bold;">${esc(stationLine())}</td></tr><tr><td colspan="4"></td></tr></table>`;
+  h+=paradeStatementHtml(key,true);
+  h+="</body></html>";
   return deliverReport(xlsBlob(h),`Friday_Parade_${key}.xls`,"Friday Parade");
 }
 function exportParadePdf(key){
   if(!needLibs("pdf")) return;
-  const d=dateFromKey(key); const {on,off}=computeParadeList(key);
+  const d=dateFromKey(key), st=computeParadeStatement(key);
   const doc=new window.jspdf.jsPDF({unit:"pt",format:"a4"}); const W=doc.internal.pageSize.getWidth();
-  doc.setFillColor(19,32,56); doc.rect(0,0,W,54,"F");
-  doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(255,255,255); doc.text(`FRIDAY PARADE — ${dateDisplay(d)}`,W/2,28,{align:"center"});
-  doc.setFont("helvetica","italic"); doc.setFontSize(10.5); doc.setTextColor(230,200,140); doc.text(stationLine(),W/2,44,{align:"center"});
-  const rows=Math.max(on.length,off.length,1), body=[];
-  for(let i=0;i<rows;i++){ const o=on[i], f=off[i]; body.push([i+1,o?`${displayRank(o.p.rank)} ${o.p.name}${o.p.attached?" (Attd)":""}`:"",f?`${displayRank(f.p.rank)} ${f.p.name}${f.p.attached?" (Attd)":""} — ${f.st.reason}`:""]); }
-  doc.autoTable({startY:70,head:[["Sl No",`On Parade (${on.length})`,`Off Parade (${off.length})`]],body,headStyles:{fillColor:[19,32,56],textColor:[255,255,255],fontStyle:"bold"},alternateRowStyles:{fillColor:[247,249,251]},styles:{fontSize:9,cellPadding:5},columnStyles:{0:{cellWidth:36,halign:"center"},1:{textColor:[47,122,79],fontStyle:"bold"},2:{textColor:[165,52,31],fontStyle:"bold"}}});
+  doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.setTextColor(0,0,0);
+  doc.text(`FRIDAY PARADE STATEMENT — ${dateDisplay(d)}`,W/2,40,{align:"center"});
+  doc.setFontSize(11); doc.text(stationLine(),W/2,57,{align:"center"});
+  const body=[];
+  const block=(title,groups,total,fill)=>{
+    groups.forEach((g,i)=>{
+      const row=[];
+      if(i===0) row.push({content:title,rowSpan:groups.length,styles:{fontStyle:"bold",valign:"middle"}});
+      row.push({content:g.label,styles:{fontStyle:"bold"}});
+      if(g.names.length){ row.push({content:g.names.join("\n")}); row.push({content:String(g.names.length),styles:{fontStyle:"bold"}}); }
+      else row.push({content:"—",colSpan:2,styles:{textColor:[150,150,150]}});
+      body.push(row);
+    });
+    body.push([{content:"TOTAL "+title.toUpperCase(),colSpan:3,styles:{fontStyle:"bold",fillColor:fill}},{content:String(total),styles:{fontStyle:"bold",fillColor:fill}}]);
+  };
+  block("On Parade",st.on,st.onTotal,[229,244,234]);
+  body.push([{content:"",colSpan:4,styles:{minCellHeight:8,lineWidth:0}}]);
+  block("Off Parade",st.off,st.offTotal,[251,233,229]);
+  body.push([{content:"GRAND TOTAL",colSpan:3,styles:{fontStyle:"bold",fillColor:[246,201,184]}},{content:String(st.onTotal+st.offTotal),styles:{fontStyle:"bold",fillColor:[246,201,184]}}]);
+  doc.autoTable({startY:70,head:[["Particulars","RANK","Name","Count"]],body,theme:"grid",
+    headStyles:{fillColor:[19,32,56],textColor:[255,255,255],fontStyle:"bold",halign:"center"},
+    styles:{fontSize:10,cellPadding:5,halign:"center",valign:"middle",lineColor:[0,0,0],lineWidth:.6,textColor:[0,0,0]},
+    columnStyles:{0:{cellWidth:80},1:{cellWidth:95},3:{cellWidth:55}}});
   return deliverReport(doc.output("blob"),`Friday_Parade_${key}.pdf`,"Friday Parade");
 }
 
