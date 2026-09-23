@@ -92,7 +92,9 @@ const DEFAULT_SETTINGS = {
   presentCode:"P",
   attendanceCodes:{},              // off-duty label -> code override
   permissions:{ editorsManagePersonnel:false, editorsReorderDuties:false },
-  saveReportsToDrive:true
+  saveReportsToDrive:true,
+  seniorDutiesFirst:true,
+  editLockHour:12           // non-admins can edit a date's duty chart only until this hour of that date
 };
 
 function defaultPersonnel(){
@@ -515,8 +517,25 @@ function migrateState(st){
 const Sync={dirty:new Set(),audit:[],activity:[],inflight:false,again:false,timer:null,retryTimer:null,
   status:"idle",lastSaved:null,lastError:"",retryDelay:4000,pendingRefresh:false};
 
+/* Duty-chart edit lock: earlier dates, and today's chart after the lock hour
+   (default 12:00 noon), can be changed only by an Administrator. */
+function lockHour(){ const h=Number(settings().editLockHour); return isFinite(h)&&h>=0&&h<=24?h:12; }
+function isDateLocked(key){
+  if(canAdmin()) return false;
+  const t=dateKey(new Date());
+  if(key<t) return true;
+  if(key===t&&new Date().getHours()>=lockHour()) return true;
+  return false;
+}
+function lockMessage(key){
+  const t=dateKey(new Date());
+  return key<t?"Duty charts of previous days can be changed only by an Administrator."
+    :`Today's duty chart can be changed only until ${pad(lockHour())}:00. After that, only an Administrator can change it.`;
+}
 function markDirty(path){
   if(!canEdit()){ toast("You have view-only access.","warn"); return false; }
+  const m=/^records\/(\d{4}-\d{2}-\d{2})/.exec(path);
+  if(m&&isDateLocked(m[1])){ toast("🔒 "+lockMessage(m[1]),"warn",6000); return false; }
   Sync.dirty.add(path);
   scheduleFlush();
   saveCacheSoon();
@@ -636,7 +655,7 @@ function applySnapshot(data,{keepLocal=true}={}){
     if(fresh&&canAdmin()){ CORE_KEYS.forEach(k=>Sync.dirty.add(k)); audit("System","Initialise database","Default roster & settings","","30 officers"); }
     else{
       mig.changed.forEach(k=>{ if(!["personnel","dutyOrder","settings","meta"].includes(k)||canAdmin()) Sync.dirty.add(k); });
-      mig.changedRecords.forEach(k=>Sync.dirty.add("records/"+k));
+      mig.changedRecords.forEach(k=>{ if(!isDateLocked(k)) Sync.dirty.add("records/"+k); });
     }
     if(Sync.dirty.size) scheduleFlush(1500);
   }

@@ -255,7 +255,9 @@ function renderSettings(el){
         <div class="field full"><label>Station name (report sub-title)</label><input class="input" id="stName" value="${esc(s.stationName)}"></div>
         <div class="field"><label>City</label><input class="input" id="stCity" value="${esc(s.stationCity)}"></div>
         <div class="field"><label>Short name in report title</label><input class="input" id="stShort" value="${esc(s.reportShort)}"></div>
+        <div class="field"><label>Duty Editors can edit a chart until (hour, same day)</label><input type="number" min="0" max="24" class="input" id="stLock" value="${esc(s.editLockHour??12)}"><span class="hint">12 = noon. Earlier dates and later changes: Administrator only.</span></div>
         <div class="field"><label>Expected strength (officers)</label><input type="number" min="0" class="input" id="stExp" value="${esc(s.expectedStrength)}"></div>
+        <div class="field full"><label class="check"><input type="checkbox" id="stSenior" ${s.seniorDutiesFirst!==false?"checked":""}> Show duties of ACP / IP officers at the top of the Duty Detailing</label></div>
         <div class="field"><label>&nbsp;</label><label class="check"><input type="checkbox" id="stDrive" ${s.saveReportsToDrive?"checked":""}> Save a copy of every exported PDF / Excel in Drive ▸ Reports</label></div>
       </div></div>
     </div>
@@ -297,6 +299,8 @@ function renderSettings(el){
     ns.reportShort=$("#stShort",el).value.trim()||DEFAULT_SETTINGS.reportShort;
     ns.expectedStrength=Math.max(0,parseInt($("#stExp",el).value||"0",10)||0);
     ns.saveReportsToDrive=$("#stDrive",el).checked;
+    ns.seniorDutiesFirst=$("#stSenior",el).checked;
+    ns.editLockHour=Math.min(24,Math.max(0,parseInt($("#stLock",el).value||"12",10)||0));
     ns.permissions={editorsManagePersonnel:$("#pmPers",el).checked,editorsReorderDuties:$("#pmOrder",el).checked};
     ns.presentCode=($("#acPresent",el).value.trim()||"P").toUpperCase();
     ns.attendanceCodes={};

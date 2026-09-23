@@ -54,7 +54,7 @@ function renderDashboard(el){
     const cls=n===0?"none":(n>=act.length?"full":"part");
     strip+=`<div class="day ${cls}${i===0?" today":""}" data-go="${k}" title="${dateDisplay(d)} — ${n}/${act.length} assigned">${d.toLocaleDateString("en-GB",{weekday:"short"}).slice(0,2)}<b>${d.getDate()}</b>${n}/${act.length}</div>`;
   }
-  const dutyRows=b.visibleRows.concat(b.otherRows);
+  const dutyRows=b.dutyRows;
   el.innerHTML=`
   <div class="hero">
     <div class="grow">
@@ -112,7 +112,8 @@ function renderDashboard(el){
 function renderDuty(el){
   const key=dateKey(UI.date);
   if(needYearsThen(el,[UI.date.getFullYear(),addDays(UI.date,-1).getFullYear()],renderDuty)) return;
-  const ed=canEdit();
+  const locked=canEdit()&&isDateLocked(key);
+  const ed=canEdit()&&!locked;
   el.innerHTML=`
   <div class="toolbar no-print">
     <div class="date-nav">
@@ -128,6 +129,7 @@ function renderDuty(el){
     <button class="btn sm primary" id="dPdf">${ic("download")}PDF</button>
     <button class="btn sm" id="dPrint">${ic("printer")}Print</button>
   </div>
+  ${locked?`<div class="warn-box no-print" style="margin:0 0 16px">${ic("lock")}<span><b>Locked.</b> ${esc(lockMessage(key))} You can still view, export and print it.</span></div>`:""}
   <div class="sheet" id="dutySheet">
     <div class="sheet-title-row">
       <div class="sheet-title">DUTY CHART OF ${esc(reportShort())} ON ${dateDisplay(UI.date)}</div>
@@ -136,8 +138,8 @@ function renderDuty(el){
     <div class="sheet-sub">${esc(stationLine())} · ${dowName(UI.date)}</div>
     <div class="table-wrap"><table class="grid-table" id="strengthGrid"></table></div>
     <div class="legend-note">GSI = officiating in SI's grade pay · GASI = officiating in ASI's grade pay · GSCPO = officiating in SCPO's grade pay.</div>
-    <div class="section-head-plain"><h2>Duty Detailing</h2></div>
-    <div class="table-wrap"><table class="grid-table duty-report"><thead><tr><th style="width:6%">Sl No</th><th style="width:24%">Duty</th><th>Officer(s) Assigned</th></tr></thead><tbody id="boardBody"></tbody></table></div>
+    <div class="section-head-plain"><h2>Duty Detailing</h2>${ed?`<div class="row no-print"><span id="orderTag"></span><button class="btn sm" id="rowReset" hidden>${ic("restore")}Default order</button><button class="btn sm ${UI.arrangeRows?"primary":""}" id="rowArrange">${UI.arrangeRows?ic("check")+"Done":ic("sort")+"Arrange rows"}</button></div>`:""}</div>
+    <div class="table-wrap"><table class="grid-table duty-report"><thead><tr><th id="boardHandleHead" class="no-print" style="width:34px" hidden></th><th style="width:6%">Sl No</th><th style="width:24%">Duty</th><th>Officer(s) Assigned</th></tr></thead><tbody id="boardBody"></tbody></table></div>
     <div class="section-head-plain"><h2>Off Duty / Leave / Rest</h2></div>
     <div class="table-wrap"><table class="grid-table duty-report"><thead><tr><th style="width:6%">Sl No</th><th style="width:24%">Off Duty Type</th><th>Officer(s)</th></tr></thead><tbody id="offBody"></tbody></table></div>
     <div class="tip-strip" id="tipStrip"></div>
@@ -194,6 +196,12 @@ function renderDuty(el){
     audit("Duty Chart","Clear day",dateDisplay(UI.date),n+" assignments","none");
     renderDuty(el);
   };
+  $("#rowArrange",el).onclick=()=>{ UI.arrangeRows=!UI.arrangeRows; const b=$("#rowArrange",el); b.classList.toggle("primary",UI.arrangeRows); b.innerHTML=UI.arrangeRows?ic("check")+"Done":ic("sort")+"Arrange rows"; renderBoard(key); if(UI.arrangeRows) toast("Drag ⠿ to arrange the duty rows for this date. Press Done when finished.","info"); };
+  $("#rowReset",el).onclick=async()=>{
+    if(!await confirmBox({title:"Default row order",message:"Go back to the default order (ACP / IP duties first, then duty priority) for this date?",confirmText:"Reset"})) return;
+    const rec=ensureRecord(key); delete rec.rowOrder; markDirty(`records/${key}/rowOrder`);
+    audit("Duty Chart","Reset duty row order",dateDisplay(UI.date),"custom","default"); renderBoard(key);
+  };
   $("#dEditStr",el).onclick=()=>{
     if(!UI.editingStrength){ UI.editingStrength=true; UI.strengthBefore=clone(S.strengthTable); }
     else{
@@ -246,12 +254,30 @@ function renderStrengthGrid(){
 
 function renderBoard(key){
   const tb=$("#boardBody"), ob=$("#offBody"); if(!tb||!ob) return;
-  const {visibleRows,otherRows,offRows}=computeDutyBoard(key);
-  const all=visibleRows.concat(otherRows);
-  tb.innerHTML=all.length?all.map((r,i)=>`<tr><td>${i+1}</td><td class="duty-label">${esc(r.label)}</td><td class="officers-cell">${officerChipsForRow(r.key,r.people)}</td></tr>`).join("")
-    :`<tr><td colspan="3" class="empty-note">No duties assigned for this date yet${canEdit()?" — use “Assign / edit duties” below":""}.</td></tr>`;
+  const {dutyRows,offRows,manualOrder}=computeDutyBoard(key);
+  const all=dutyRows;
+  const arr=UI.arrangeRows&&canEdit();
+  const head=$("#boardHandleHead"); if(head) head.hidden=!arr;
+  tb.innerHTML=all.length?all.map((r,i)=>`<tr data-row="${esc(r.rowId)}">${arr?`<td class="no-print" style="width:34px"><span class="drag-handle" title="Drag to change position">${ic("grip")}</span></td>`:""}<td>${i+1}</td><td class="duty-label">${esc(r.label)}</td><td class="officers-cell">${officerChipsForRow(r.key,r.people)}</td></tr>`).join("")
+    :`<tr><td colspan="${arr?4:3}" class="empty-note">No duties assigned for this date yet${canEdit()?" — use “Assign / edit duties” below":""}.</td></tr>`;
   ob.innerHTML=offRows.length?offRows.map((r,i)=>`<tr><td>${i+1}</td><td class="duty-label">${esc(r.label)}</td><td class="officers-cell">${r.people.map(x=>officerChip(x.p,x.note)).join("")}</td></tr>`).join("")
     :`<tr><td colspan="3" class="empty-note">No one on leave / rest / off duty for this date.</td></tr>`;
+  const tag=$("#orderTag");
+  if(tag) tag.innerHTML=manualOrder?`<span class="tag gold">Custom order for this date</span>`:(settings().seniorDutiesFirst!==false?`<span class="tag grey">ACP / IP duties first · priority order</span>`:`<span class="tag grey">Priority order</span>`);
+  const rs=$("#rowReset"); if(rs) rs.hidden=!manualOrder||!canEdit();
+  if(renderBoard.sortable){ try{ renderBoard.sortable.destroy(); }catch(e){} renderBoard.sortable=null; }
+  if(arr&&all.length>1&&window.Sortable){
+    renderBoard.sortable=window.Sortable.create(tb,{animation:160,handle:".drag-handle",ghostClass:"sortable-ghost",forceFallback:true,fallbackTolerance:3,onEnd:ev=>{
+      if(ev.oldIndex===ev.newIndex) return;
+      const order=$$("tr[data-row]",tb).map(tr=>tr.dataset.row);
+      const rec=ensureRecord(key);
+      const moved=all[ev.oldIndex];
+      rec.rowOrder=order;
+      markDirty(`records/${key}/rowOrder`);
+      audit("Duty Chart","Change duty row order",`${dateDisplay(dateFromKey(key))} · ${moved?moved.label:""}`,"Row "+(ev.oldIndex+1),"Row "+(ev.newIndex+1));
+      renderBoard(key);
+    }});
+  }
 }
 
 function renderTipStrip(key){

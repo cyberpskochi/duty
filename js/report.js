@@ -42,7 +42,25 @@ function computeDutyBoard(key){
   OFF_DUTY_CATEGORIES.forEach(c=>{ if(offMap[c.label]){ offRows.push({key:c.key,label:c.label,people:offMap[c.label]}); delete offMap[c.label]; } });
   Object.keys(offMap).sort().forEach(l=>offRows.push({key:l,label:l,people:offMap[l]}));
   const unassigned=activePersonnel().filter(p=>!(asg[p.id]&&(asg[p.id].duty||"").trim())).length;
-  return {visibleRows,otherRows,offRows,counts:{onDuty,off:offCount,unassigned}};
+  // Final order of the Duty Detailing rows:
+  //  1. default = duty priority order, then custom duty types;
+  //  2. rows with an ACP / IP officer move to the top (ACP rows first);
+  //  3. if the rows were dragged into a custom order for this date, that wins.
+  let dutyRows=visibleRows.concat(otherRows).map((r,i)=>Object.assign(r,{rowId:r.label.toLowerCase(),defIdx:i}));
+  if(settings().seniorDutiesFirst!==false){
+    const seniority=r=>{ const rs=r.people.map(x=>baseRank(x.p.rank)); return rs.includes("ACP")?0:rs.includes("IP")?1:2; };
+    dutyRows.sort((a,b)=>seniority(a)-seniority(b)||a.defIdx-b.defIdx);
+  }
+  const manual=Array.isArray(rec.rowOrder)&&rec.rowOrder.length?rec.rowOrder.map(x=>String(x).toLowerCase()):null;
+  if(manual){
+    const pos=r=>{ const i=manual.indexOf(r.rowId); return i<0?null:i; };
+    const listed=dutyRows.filter(r=>pos(r)!==null).sort((a,b)=>pos(a)-pos(b));
+    const rest=dutyRows.filter(r=>pos(r)===null);
+    // rows not yet in the saved order (newly assigned duties) keep their default place
+    rest.forEach(r=>{ const at=dutyRows.indexOf(r); listed.splice(Math.min(at,listed.length),0,r); });
+    dutyRows=listed;
+  }
+  return {visibleRows,otherRows,dutyRows,manualOrder:!!manual,offRows,counts:{onDuty,off:offCount,unassigned}};
 }
 function splitIpFirst(people){
   const idx=people.findIndex(x=>baseRank(x.p.rank)!=="IP");
@@ -183,7 +201,7 @@ function needLibs(which){
 function exportDutyExcel(key){
   const d=dateFromKey(key);
   const cols=S.strengthTable.columns, vals=S.strengthTable.values, groups=strengthGroups(), n=cols.length;
-  const {visibleRows,otherRows,offRows}=computeDutyBoard(key);
+  const {dutyRows,offRows}=computeDutyBoard(key);
   const msg=tipFor(key).text;
   const NAVY="#132038",NAVY2="#1c2f4e",GOLD="#c9962f",TEAL="#125658",ORANGE="#e0562a",AMBER="#d97706",VIOLET="#7c3aed",INK="#1a2333";
   const FONT="font-family:'Calibri','Segoe UI',Arial,sans-serif;";
@@ -205,7 +223,7 @@ function exportDutyExcel(key){
   h+=srow("Sanctioned","sanctioned",true)+srow("Existing","existing",false)+srow("Attached","attached",false)+srow("Vacancy","vacancy",true);
   h+=`<tr><td colspan="${n+2}" style="height:14px;border:none;"></td></tr>`;
   h+=`<tr style="background:${AMBER};font-weight:bold;color:#fff;font-size:13px;"><td colspan="2">DUTY ASSIGNMENTS</td><td colspan="${n}">Officer(s) Assigned</td></tr>`;
-  const all=visibleRows.concat(otherRows);
+  const all=dutyRows;
   if(!all.length) h+=`<tr><td colspan="${n+2}" style="background:#fdf1de;">No duties assigned for this date.</td></tr>`;
   all.forEach((r,i)=>{ h+=`<tr style="background:${i%2?"#fffaf1":"#fdf1de"};"><td colspan="2" style="font-weight:bold;color:#a05a06;background:#fce3bc;">${esc(r.label)}</td><td colspan="${n}">${esc(officerNamesForRow(r.key,r.people,"\n")).replace(/\n/g,"<br>")}</td></tr>`; });
   h+=`<tr><td colspan="${n+2}" style="height:14px;border:none;"></td></tr>`;
@@ -222,7 +240,7 @@ function exportDutyPdf(key){
   if(!needLibs("pdf")) return;
   const d=dateFromKey(key);
   const cols=S.strengthTable.columns, vals=S.strengthTable.values, groups=strengthGroups();
-  const {visibleRows,otherRows,offRows}=computeDutyBoard(key);
+  const {dutyRows,offRows}=computeDutyBoard(key);
   const msg=tipFor(key).text;
   const doc=new window.jspdf.jsPDF({unit:"pt",format:"a4"});
   const W=doc.internal.pageSize.getWidth();
@@ -250,7 +268,7 @@ function exportDutyPdf(key){
   });
   doc.autoTable({startY:70,head:[head1,head2],body,headStyles:{fillColor:NAVY2,textColor:[255,255,255],fontStyle:"bold",halign:"center"},bodyStyles:{halign:"center",fontStyle:"bold"},styles:{fontSize:8.5,cellPadding:5,lineColor:[255,255,255],lineWidth:.75}});
   const band=(y,color,title)=>{ doc.setFillColor(...color); doc.roundedRect(30,y,W-60,20,5,5,"F"); doc.setFont("helvetica","bold"); doc.setFontSize(10.5); doc.setTextColor(255,255,255); doc.text(title,40,y+14); };
-  const all=visibleRows.concat(otherRows);
+  const all=dutyRows;
   let y=doc.lastAutoTable.finalY+16; band(y,AMBER,"DUTY ASSIGNMENTS");
   doc.autoTable({startY:y+22,head:[["Sl No","Duty","Officer(s) Assigned"]],body:all.length?all.map((r,i)=>[i+1,r.label,officerNamesForRow(r.key,r.people,"\n")]):[["","No duties assigned for this date.",""]],
     headStyles:{fillColor:[252,227,188],textColor:[128,73,4],fontStyle:"bold"},bodyStyles:{fillColor:[253,241,222]},alternateRowStyles:{fillColor:[255,250,241]},
