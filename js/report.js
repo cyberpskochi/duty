@@ -42,25 +42,29 @@ function computeDutyBoard(key){
   OFF_DUTY_CATEGORIES.forEach(c=>{ if(offMap[c.label]){ offRows.push({key:c.key,label:c.label,people:offMap[c.label]}); delete offMap[c.label]; } });
   Object.keys(offMap).sort().forEach(l=>offRows.push({key:l,label:l,people:offMap[l]}));
   const unassigned=activePersonnel().filter(p=>!(asg[p.id]&&(asg[p.id].duty||"").trim())).length;
-  // Final order of the Duty Detailing rows:
-  //  1. default = duty priority order, then custom duty types;
+  // Final order of the Duty Detailing and Off Duty rows:
+  //  1. default = duty priority order (off duty: standard leave order);
   //  2. rows with an ACP / IP officer move to the top (ACP rows first);
   //  3. if the rows were dragged into a custom order for this date, that wins.
-  let dutyRows=visibleRows.concat(otherRows).map((r,i)=>Object.assign(r,{rowId:r.label.toLowerCase(),defIdx:i}));
+  const dutyRows=arrangeRows(visibleRows.concat(otherRows),rec.rowOrder);
+  const offOrdered=arrangeRows(offRows,rec.offRowOrder);
+  return {visibleRows,otherRows,dutyRows,manualOrder:dutyRows.manual,offRows:offOrdered,offManualOrder:offOrdered.manual,counts:{onDuty,off:offCount,unassigned}};
+}
+function arrangeRows(list,savedOrder){
+  let rows=list.map((r,i)=>Object.assign(r,{rowId:r.label.toLowerCase(),defIdx:i}));
   if(settings().seniorDutiesFirst!==false){
     const seniority=r=>{ const rs=r.people.map(x=>baseRank(x.p.rank)); return rs.includes("ACP")?0:rs.includes("IP")?1:2; };
-    dutyRows.sort((a,b)=>seniority(a)-seniority(b)||a.defIdx-b.defIdx);
+    rows.sort((a,b)=>seniority(a)-seniority(b)||a.defIdx-b.defIdx);
   }
-  const manual=Array.isArray(rec.rowOrder)&&rec.rowOrder.length?rec.rowOrder.map(x=>String(x).toLowerCase()):null;
+  const manual=Array.isArray(savedOrder)&&savedOrder.length?savedOrder.map(x=>String(x).toLowerCase()):null;
   if(manual){
     const pos=r=>{ const i=manual.indexOf(r.rowId); return i<0?null:i; };
-    const listed=dutyRows.filter(r=>pos(r)!==null).sort((a,b)=>pos(a)-pos(b));
-    const rest=dutyRows.filter(r=>pos(r)===null);
-    // rows not yet in the saved order (newly assigned duties) keep their default place
-    rest.forEach(r=>{ const at=dutyRows.indexOf(r); listed.splice(Math.min(at,listed.length),0,r); });
-    dutyRows=listed;
+    const listed=rows.filter(r=>pos(r)!==null).sort((a,b)=>pos(a)-pos(b));
+    rows.filter(r=>pos(r)===null).forEach(r=>{ const at=rows.indexOf(r); listed.splice(Math.min(at,listed.length),0,r); });
+    rows=listed;
   }
-  return {visibleRows,otherRows,dutyRows,manualOrder:!!manual,offRows,counts:{onDuty,off:offCount,unassigned}};
+  rows.manual=!!manual;
+  return rows;
 }
 function splitIpFirst(people){
   const idx=people.findIndex(x=>baseRank(x.p.rank)!=="IP");
