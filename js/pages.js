@@ -81,7 +81,7 @@ function renderDashboard(el){
         <div class="card-body">${b.offRows.length?`<ul class="mini-duty">${b.offRows.map(r=>`<li><span class="d"><span class="code ${codeClass(codeForOffLabel(r.label))}">${esc(codeForOffLabel(r.label))}</span> ${esc(r.label)}</span><span class="n">${esc(officerNames(r.people))}</span></li>`).join("")}</ul>`:`<div class="empty">No one on leave or rest today.</div>`}</div>
       </div>
       <div class="card">
-        <div class="card-head"><h2>${ic("flag")}Friday parade · ${dateDisplay(fri)}</h2><span class="spacer"></span><button class="btn sm" data-nav="parade">Open ${ic("chevR")}</button></div>
+        <div class="card-head"><h2>${ic("flag")}${esc(paradeTitle(fk))} · ${dateDisplay(fri)}</h2><span class="spacer"></span><button class="btn sm" data-nav="parade">Open ${ic("chevR")}</button></div>
         <div class="card-body row" style="gap:12px"><span class="tag green" style="font-size:13px;padding:5px 12px">On parade <b class="mono">${par.on.length}</b></span><span class="tag red" style="font-size:13px;padding:5px 12px">Off parade <b class="mono">${par.off.length}</b></span></div>
       </div>
     </div>
@@ -436,13 +436,17 @@ function renderParade(el){
   const key=dateKey(UI.friday);
   if(needYearsThen(el,[UI.friday.getFullYear(),addDays(UI.friday,-1).getFullYear()],renderParade)) return;
   const ed=canEdit();
+  const editing=ed&&UI.paradeEdit===key;
   const {on,off}=computeParadeList(key);
+  const meta=paradeMeta(key), title=paradeTitle(key), LB=paradeLabels(key);
   const manualCount=Object.keys((S.paradeOverrides||{})[key]||{}).length;
-  const chip=({p,st})=>`<li class="parade-chip-item${st.manual?" manual":""}" data-id="${p.id}">
-      ${ed?`<span class="drag-handle" title="Drag to the other column">${ic("grip")}</span>`:""}
+  const custCount=Object.keys(meta.reasons||{}).length+((meta.order||[]).length?1:0);
+  const chip=({p,st})=>`<li class="parade-chip-item${st.manual?" manual":""}${st.customReason?" custom":""}" data-id="${p.id}">
+      ${ed?`<span class="drag-handle" title="Drag up / down, or to the other column">${ic("grip")}</span>`:""}
       <span class="pc-rank">${esc(displayRank(p.rank))}</span><span class="pc-name">${esc(p.name)}${p.attached?" <em>(Attd)</em>":""}</span>
-      <span class="pc-reason">${esc(st.reason)}${st.manual?" · manual":""}</span>
-      ${ed?`<button class="icon-only pc-move" title="${st.status==="on"?"Move to Off Parade":"Move to On Parade"}">${ic("swap")}</button>`:""}</li>`;
+      ${editing?`<input class="input sm pc-reason-edit" data-reason value="${esc(st.customReason?st.reason:"")}" placeholder="${esc(st.status==="off"?paradeReasonText(p,Object.assign({},st,{customReason:false,reason:st.autoReason||st.reason}),key):(st.autoReason||st.reason))}" title="Leave blank to use the duty chart">`
+        :`<span class="pc-reason">${esc(st.status==="off"?paradeReasonText(p,st,key):st.reason)}${st.manual?" · moved":""}${st.customReason?" · edited":""}</span>`}
+      ${ed?`<button class="icon-only pc-move" title="${st.status==="on"?"Move to "+esc(LB.off):"Move to "+esc(LB.on)}">${ic("swap")}</button>`:""}</li>`;
   el.innerHTML=`
   <div class="toolbar no-print">
     <div class="date-nav">
@@ -451,55 +455,107 @@ function renderParade(el){
       <button class="icon-only" id="pNext" title="Next Friday">${ic("chevR")}</button>
       <span class="day-name">Friday</span>
     </div>
-    ${ed?`<button class="btn sm primary" id="pGen">${ic("bolt")}Generate Friday parade</button>`:""}
-    ${manualCount?`<span class="tag gold">${manualCount} manual override(s)</span>`:""}
+    ${ed?`<button class="btn sm primary" id="pGen">${ic("bolt")}Generate</button>
+      <button class="btn sm ${editing?"gold":""}" id="pEdit">${editing?ic("check")+"Done editing":ic("edit")+"Edit duties / reasons"}</button>`:""}
+    ${manualCount?`<span class="tag gold">${manualCount} moved</span>`:""}${custCount?`<span class="tag violet">edited</span>`:""}
     <span class="spacer"></span>
     <button class="btn sm gold" id="pXls">${ic("download")}Excel</button>
     <button class="btn sm primary" id="pPdf">${ic("download")}PDF</button>
     <button class="btn sm" id="pPrint">${ic("printer")}Print</button>
   </div>
   <div class="card no-print">
-    <div class="card-head"><h2>${ic("flag")}Friday parade — ${dateDisplay(UI.friday)}</h2><span class="sub">Worked out from that Friday's duty chart. ${ed?"Drag an officer between columns (or tap ⇄) to override.":""}</span></div>
+    <div class="card-head">
+      <h2>${ic("flag")}${esc(title)} — ${dateDisplay(UI.friday)}</h2>
+      ${ed?`<button class="btn sm" id="pTitle" title="Change the heading for this Friday">${ic("edit")}Edit heading</button>`:""}
+      <span class="sub">${ed?(editing?"Type the duty / reason against any officer (leave blank to use the duty chart). ":"")+"Drag ⠿ up / down to change the order, or to the other column to move an officer.":"Worked out from that Friday's duty chart."}</span>
+    </div>
     <div class="card-body">
       <div class="parade-cols">
-        <div class="parade-col on-col"><h3>On parade <span class="pcount">${on.length}</span></h3><ul class="parade-list" id="onList" data-status="on">${on.map(chip).join("")||'<li class="empty">No one on parade.</li>'}</ul></div>
-        <div class="parade-col off-col"><h3>Off parade <span class="pcount">${off.length}</span></h3><ul class="parade-list" id="offList" data-status="off">${off.map(chip).join("")||'<li class="empty">No one off parade.</li>'}</ul></div>
+        <div class="parade-col on-col"><h3>${esc(LB.on)} <span class="pcount">${on.length}</span></h3><ul class="parade-list" id="onList" data-status="on">${on.map(chip).join("")||'<li class="empty">Nobody.</li>'}</ul></div>
+        <div class="parade-col off-col"><h3>${esc(LB.off)} <span class="pcount">${off.length}</span></h3><ul class="parade-list" id="offList" data-status="off">${off.map(chip).join("")||'<li class="empty">Nobody.</li>'}</ul></div>
       </div>
-      <div class="hint" style="margin-top:12px">Off parade automatically: anyone on off duty / leave / rest, Night GD, Night Watch, Course, Sub Division Check or Echo (incl. Echo Women) that Friday, and anyone who was on Night GD on Thursday night. “Generate” clears manual overrides and recomputes.</div>
+      <div class="hint" style="margin-top:12px">Worked out automatically from the duty chart: off duty / leave / rest, Night GD, Night Watch, Course, Sub Division Check and Echo are off; anyone on Night GD on Thursday night is also off. <b>Edit duties / reasons</b> lets you type what should appear (e.g. “Night Duty 25/09 & Day GD”). <b>Generate</b> clears moves, edited reasons and custom order.</div>
     </div>
   </div>
   <div class="sheet">
-    <div class="sheet-title-row"><div class="sheet-title">Friday Parade Statement — ${dateDisplay(UI.friday)}</div></div>
+    <div class="sheet-title-row"><div class="sheet-title">${esc(title)} Statement — ${dateDisplay(UI.friday)}</div></div>
     <div class="sheet-sub">${esc(stationLine())}</div>
     <div class="table-wrap">${paradeStatementHtml(key,false)}</div>
   </div>`;
-  const go=d=>{ UI.friday=snapToFriday(d); renderParade(el); updateHash(); };
+  const go=d=>{ UI.friday=snapToFriday(d); UI.paradeEdit=null; renderParade(el); updateHash(); };
   $("#pPrev",el).onclick=()=>go(addDays(UI.friday,-7));
   $("#pNext",el).onclick=()=>go(addDays(UI.friday,7));
   $("#pPick",el).onchange=e=>{ if(e.target.value) go(dateFromKey(e.target.value)); };
   $("#pXls",el).onclick=()=>exportParadeExcel(key);
   $("#pPdf",el).onclick=()=>exportParadePdf(key);
-  $("#pPrint",el).onclick=()=>{ logEvent("Reports","Print Friday parade",dateDisplay(UI.friday)); window.print(); };
+  $("#pPrint",el).onclick=()=>{ logEvent("Reports","Print "+title,dateDisplay(UI.friday)); window.print(); };
   if(!ed) return;
+
+  const ensureMeta=()=>{ if(!S.paradeMeta) S.paradeMeta={}; if(!S.paradeMeta[key]) S.paradeMeta[key]={}; return S.paradeMeta[key]; };
+  const saveMeta=()=>{ const m=S.paradeMeta[key]; if(m&&!Object.keys(m).some(k=>{ const v=m[k]; return Array.isArray(v)?v.length:(v&&typeof v==="object")?Object.keys(v).length:!!v; })) delete S.paradeMeta[key]; markDirty(`paradeMeta/${key}`); };
+
+  $("#pTitle",el).onclick=()=>{
+    openModal({title:"Heading for "+dateDisplay(UI.friday),body:`
+      <div class="form-grid">
+        <div class="field full"><label>Heading</label><input class="input" id="ptT" value="${esc(meta.title||"")}" placeholder="Friday Parade"><span class="hint">e.g. Catechism Class, Weekly Parade, Special Parade</span></div>
+        <div class="field"><label>First section</label><input class="input" id="ptOn" value="${esc(meta.onLabel||"")}" placeholder="On Parade"></div>
+        <div class="field"><label>Second section</label><input class="input" id="ptOff" value="${esc(meta.offLabel||"")}" placeholder="Off Parade"></div>
+      </div><p class="hint" style="margin-top:10px">Applies to this Friday only. Leave blank for the normal “Friday Parade / On Parade / Off Parade”.</p>`,
+      actions:[{label:"Cancel"},{label:"Save",cls:"primary",icon:"check",onClick:(close,m)=>{
+        const nt=$("#ptT",m).value.trim(), no=$("#ptOn",m).value.trim(), nf=$("#ptOff",m).value.trim();
+        const old=[meta.title||"Friday Parade",meta.onLabel||"On Parade",meta.offLabel||"Off Parade"].join(" / ");
+        const md=ensureMeta(); md.title=nt; md.onLabel=no; md.offLabel=nf;
+        saveMeta();
+        audit("Friday Parade","Change heading",dateDisplay(UI.friday),old,[nt||"Friday Parade",no||"On Parade",nf||"Off Parade"].join(" / "));
+        close(); renderParade(el);
+      }}]});
+  };
+  $("#pEdit",el).onclick=()=>{ UI.paradeEdit=editing?null:key; renderParade(el); };
+  $$("[data-reason]",el).forEach(inp=>{
+    inp.onchange=()=>{
+      const pid=inp.closest("li").dataset.id, p=personById(pid);
+      const md=ensureMeta(); if(!md.reasons) md.reasons={};
+      const old=md.reasons[pid]||"", v=inp.value.trim();
+      if(v) md.reasons[pid]=v; else delete md.reasons[pid];
+      saveMeta();
+      audit("Friday Parade","Edit duty / reason",`${dateDisplay(UI.friday)} · ${personLabel(p)}`,old||"(from duty chart)",v||"(from duty chart)");
+      const sheet=$(".sheet .table-wrap",el); if(sheet) sheet.innerHTML=paradeStatementHtml(key,false);
+    };
+    inp.onkeydown=e=>{ if(e.key==="Enter") inp.blur(); };
+  });
   $("#pGen",el).onclick=async()=>{
-    if(manualCount&&!await confirmBox({title:"Generate Friday parade",message:`Clear ${manualCount} manual override(s) and recompute from the duty chart?`,confirmText:"Generate"})) return;
+    if((manualCount||custCount)&&!await confirmBox({title:"Generate "+title,message:`Clear ${manualCount} moved officer(s), edited reasons and the custom order, and recompute from the duty chart? (The heading is kept.)`,confirmText:"Generate"})) return;
     if(S.paradeOverrides[key]){ delete S.paradeOverrides[key]; markDirty(`paradeOverrides/${key}`); }
-    audit("Friday Parade","Generate parade",dateDisplay(UI.friday),manualCount+" overrides","recomputed");
+    if(S.paradeMeta&&S.paradeMeta[key]){ delete S.paradeMeta[key].reasons; delete S.paradeMeta[key].order; saveMeta(); }
+    audit("Friday Parade","Generate parade",dateDisplay(UI.friday),manualCount+" moved, "+custCount+" edits","recomputed");
     renderParade(el);
   };
   const setStatus=(pid,status)=>{
     const auto=paradeAutoStatus(pid,key), cur=paradeStatusFor(pid,key);
-    if(cur.status===status) return;
+    if(cur.status===status) return false;
     if(!S.paradeOverrides[key]) S.paradeOverrides[key]={};
     if(status===auto.status) delete S.paradeOverrides[key][pid]; else S.paradeOverrides[key][pid]=status;
     if(!Object.keys(S.paradeOverrides[key]).length) delete S.paradeOverrides[key];
     markDirty(`paradeOverrides/${key}`);
     const p=personById(pid);
-    audit("Friday Parade","Move officer",`${dateDisplay(UI.friday)} · ${personLabel(p)}`,cur.status==="on"?"On parade":"Off parade",status==="on"?"On parade":"Off parade");
-    renderParade(el);
+    audit("Friday Parade","Move officer",`${dateDisplay(UI.friday)} · ${personLabel(p)}`,cur.status==="on"?LB.on:LB.off,status==="on"?LB.on:LB.off);
+    return true;
   };
-  $$(".pc-move",el).forEach(b=>b.onclick=()=>{ const li=b.closest("li"); setStatus(li.dataset.id,li.closest("ul").dataset.status==="on"?"off":"on"); });
-  ["#onList","#offList"].forEach(id=>makeSortable($(id,el),{group:"parade",sort:false,onAdd:ev=>setStatus(ev.item.dataset.id,ev.to.dataset.status)}));
+  const saveOrder=(movedId)=>{
+    const ids=$$("#onList li[data-id]",el).map(x=>x.dataset.id).concat($$("#offList li[data-id]",el).map(x=>x.dataset.id));
+    const md=ensureMeta(); const oldPos=(md.order||[]).indexOf(movedId);
+    md.order=ids; saveMeta();
+    const p=personById(movedId);
+    audit("Friday Parade","Change order",`${dateDisplay(UI.friday)} · ${p?personLabel(p):movedId}`,oldPos<0?"default":"Position "+(oldPos+1),"Position "+(ids.indexOf(movedId)+1));
+  };
+  $$(".pc-move",el).forEach(b=>b.onclick=()=>{ const li=b.closest("li"); setStatus(li.dataset.id,li.closest("ul").dataset.status==="on"?"off":"on"); renderParade(el); });
+  ["#onList","#offList"].forEach(id=>makeSortable($(id,el),{group:"parade",sort:true,filter:"input",preventOnFilter:false,onEnd:ev=>{
+    if(ev.from===ev.to&&ev.oldIndex===ev.newIndex) return;
+    const pid=ev.item.dataset.id;
+    if(ev.from!==ev.to) setStatus(pid,ev.to.dataset.status);
+    saveOrder(pid);
+    renderParade(el);
+  }}));
 }
 
 /* =======================================================================

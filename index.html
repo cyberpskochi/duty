@@ -39,11 +39,17 @@
     <div id="loginLoading" class="login-loading"><span class="spinner"></span> Preparing secure sign-in…</div>
     <div id="gsiButton" class="gsi-wrap"></div>
     <div id="demoLogin" class="demo-login" hidden></div>
+    <form id="pwLogin" class="pw-login" autocomplete="on">
+      <div class="login-or"><span>or sign in with username</span></div>
+      <input class="pw-input" id="pwUser" name="username" autocomplete="username" placeholder="Username or Gmail ID" autocapitalize="none" spellcheck="false">
+      <div class="pw-wrap"><input class="pw-input" id="pwPass" name="password" type="password" autocomplete="current-password" placeholder="Password"><button type="button" class="pw-eye" id="pwEye" title="Show password">👁</button></div>
+      <button type="submit" class="pw-btn" id="pwGo">Sign in</button>
+    </form>
     <div id="loginError" class="login-error" hidden></div>
 
     <p class="login-note">
       <svg viewBox="0 0 24 24" width="14" height="14"><path d="M6 10V8a6 6 0 1 1 12 0v2m-13 0h14v11H5V10Z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-      Only Gmail IDs authorised by the Station Administrator can sign in.<br>All sign-in attempts and activity are recorded.
+      Only users authorised by the Station Administrator can sign in.<br>All sign-in attempts and activity are recorded.
     </p>
   </div>
   <div class="login-foot">Cyber Crime PS, Kochi City · Internal use only · Designed &amp; developed by ARUN R</div>

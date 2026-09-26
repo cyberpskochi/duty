@@ -73,6 +73,8 @@
     if (value === null || value === undefined) delete o[last]; else o[last] = value;
   }
   function user(db, email) { return db.users.filter(function (u) { return u.email === email; })[0]; }
+  function demoHash(p) { return "d$" + btoa(unescape(encodeURIComponent(String(p || "") + "|cyberps"))); }
+  function pubUsers(db) { return clone(db.users).map(function (u) { u.isOwner = u.email === OWNER; u.hasPassword = !!u.pw; delete u.pw; return u; }); }
   function makeBackup(db, reason, by) {
     var b = {
       id: "b" + Date.now() + Math.random().toString(36).slice(2, 6),
@@ -87,7 +89,7 @@
     return b;
   }
 
-  var TOP = { records: "editor", attendance: "editor", paradeOverrides: "editor", dutyTypes: "editor", strengthTable: "editor", tips: "editor", tipsVersion: "editor", usedTipIndices: "editor", personnel: "admin", dutyOrder: "admin", settings: "admin", meta: "admin" };
+  var TOP = { records: "editor", attendance: "editor", paradeOverrides: "editor", paradeMeta: "editor", dutyTypes: "editor", strengthTable: "editor", tips: "editor", tipsVersion: "editor", usedTipIndices: "editor", personnel: "admin", dutyOrder: "admin", settings: "admin", meta: "admin" };
 
   function handle(action, payload, token, client) {
     var db = load();
@@ -111,6 +113,21 @@
       return { session: tok, user: { email: u.email, name: u.name, role: u.role, sid: tok.slice(0, 10), isOwner: u.email === OWNER }, sessionHours: 6 };
     }
     if (action === "ping") return { pong: true };
+    if (action === "auth.passwordLogin") {
+      var id = String(payload.username || "").trim().toLowerCase();
+      var pu = user(db, id);
+      if (!pu || !pu.pw || pu.pw !== demoHash(payload.password)) {
+        addLog(db, "login", { Email: id, Event: "LOGIN_FAILED", Result: "FAILED", Browser: client.ua, Details: "Password sign-in: " + (!pu ? "unknown username" : "wrong password") });
+        store(db); throw err("Wrong username or password.", "AUTH_FAILED");
+      }
+      if (pu.status !== "Active") { store(db); throw err("This account is " + pu.status + ".", "NOT_AUTHORISED"); }
+      var tk = "demo" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      db.sessions[tk] = { email: pu.email, name: pu.name, role: pu.role, sid: tk.slice(0, 10), mustChange: !!pu.mustChange };
+      pu.lastLogin = stamp();
+      addLog(db, "login", { Email: pu.email, Name: pu.name, Event: "LOGIN_SUCCESS", Result: "SUCCESS", Session: tk.slice(0, 10), Browser: client.ua, Details: "Password sign-in · Role: " + pu.role });
+      store(db);
+      return { session: tk, user: { email: pu.email, name: pu.name, role: pu.role, sid: tk.slice(0, 10), method: "password", mustChangePassword: !!pu.mustChange } };
+    }
 
     var s = db.sessions[token];
     if (!s) {
@@ -126,6 +143,7 @@
       throw err("Your access has been withdrawn by the administrator.", "AUTH_EXPIRED");
     }
     ctx = { email: s.email, name: cu.name || s.name, role: cu.role, sid: s.sid };
+    if (s.mustChange && ["auth.changePassword", "auth.logout", "logs.error"].indexOf(action) === -1) throw err("Please set a new password before continuing.", "PASSWORD_CHANGE");
     function need(role) { if (ROLES[ctx.role] < ROLES[role]) throw err("Your role (" + ctx.role + ") does not permit this action. " + role + " role required.", "FORBIDDEN"); }
     function has(role) { return ROLES[ctx.role] >= ROLES[role]; }
     var out;
@@ -187,22 +205,37 @@
         out = { core: db.core, records: db.records, attendance: db.attendance, exportedAt: stamp(), exportedBy: ctx.email, version: db.version };
         break;
 
-      case "users.list": need("admin"); out = { users: clone(db.users).map(function (u) { u.isOwner = u.email === OWNER; return u; }) }; break;
+      case "users.list": need("admin"); out = { users: pubUsers(db) }; break;
+
+      case "users.setPassword":
+        need("admin");
+        var su = user(db, String(payload.email).toLowerCase());
+        if (!su) throw err("User not found.", "BAD_REQUEST");
+        if (payload.clear) { su.pw = ""; su.mustChange = false; activity(db, ctx, { module: "Users", action: "Remove password login", record: su.email }); }
+        else { su.pw = demoHash(payload.password); su.mustChange = payload.mustChange !== false; activity(db, ctx, { module: "Users", action: "Set password", record: su.email, newValue: "temporary password" }); }
+        out = { users: pubUsers(db) }; break;
+
+      case "auth.changePassword":
+        var me = user(db, ctx.email);
+        if (me.pw && !s.mustChange && me.pw !== demoHash(payload.oldPassword)) throw err("Current password is wrong.", "BAD_REQUEST");
+        me.pw = demoHash(payload.newPassword); me.mustChange = false; s.mustChange = false;
+        activity(db, ctx, { module: "Users", action: "Change own password", record: ctx.email, newValue: "(hidden)" });
+        out = { changed: true }; break;
 
       case "users.save":
         need("admin");
         var em = String(payload.email || "").trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) throw err("Enter a valid Gmail / Google account e-mail address.", "BAD_REQUEST");
+        if (!(/@/.test(em) ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) : /^[a-z0-9._-]{3,32}$/.test(em))) throw err("Enter a valid Gmail address or username.", "BAD_REQUEST");
         if ((em === OWNER || em === ctx.email) && (payload.role !== "admin" || payload.status === "Disabled")) throw err("You cannot demote or disable this account.", "BAD_REQUEST");
         var ex = user(db, em);
         if (ex) {
           activity(db, ctx, { module: "Users", action: ex.status === "Removed" ? "Re-add user" : "Update user", record: em, oldValue: ex.role + " / " + ex.status, newValue: payload.role + " / " + (payload.status || "Active") });
           ex.role = payload.role; ex.status = payload.status === "Disabled" ? "Disabled" : "Active"; if (payload.name) ex.name = payload.name;
         } else {
-          db.users.push({ email: em, name: payload.name || "", role: payload.role || "viewer", status: payload.status === "Disabled" ? "Disabled" : "Active", addedBy: ctx.email, addedOn: stamp(), lastLogin: "", lastActivity: "", notes: payload.notes || "" });
+          db.users.push({ email: em, name: payload.name || "", role: payload.role || "viewer", status: payload.status === "Disabled" ? "Disabled" : "Active", addedBy: ctx.email, addedOn: stamp(), lastLogin: "", lastActivity: "", notes: payload.notes || "", pw: payload.password ? demoHash(payload.password) : "", mustChange: !!payload.password });
           activity(db, ctx, { module: "Users", action: "Add user", record: em, newValue: (payload.role || "viewer") + " / Active" });
         }
-        out = { users: clone(db.users).map(function (u) { u.isOwner = u.email === OWNER; return u; }) }; break;
+        out = { users: pubUsers(db) }; break;
 
       case "users.remove":
         need("admin");
@@ -211,7 +244,7 @@
         if (re.email === OWNER || re.email === ctx.email) throw err("This account cannot be removed.", "BAD_REQUEST");
         activity(db, ctx, { module: "Users", action: "Remove user", record: re.email, oldValue: re.role + " / " + re.status, newValue: "Removed" });
         re.status = "Removed";
-        out = { users: clone(db.users).map(function (u) { u.isOwner = u.email === OWNER; return u; }) }; break;
+        out = { users: pubUsers(db) }; break;
 
       case "logs.query":
         need("admin");

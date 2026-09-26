@@ -23,15 +23,16 @@ function renderUsers(el){
   el.innerHTML=`
   <div class="grid side">
     <div class="card">
-      <div class="card-head"><h2>${ic("userPlus")}Authorise a Gmail ID</h2></div>
+      <div class="card-head"><h2>${ic("userPlus")}Add a user</h2><span class="spacer"></span><div class="seg" id="uType"><button data-t="gmail" class="on">Gmail (Google sign-in)</button><button data-t="user">Username &amp; password</button></div></div>
       <div class="card-body">
         <div class="form-grid">
-          <div class="field"><label>Gmail / Google account *</label><input class="input" id="uEmail" placeholder="officer@gmail.com" autocomplete="off"></div>
+          <div class="field"><label id="uEmailLbl">Gmail / Google account *</label><input class="input" id="uEmail" placeholder="officer@gmail.com" autocomplete="off" autocapitalize="none"></div>
           <div class="field"><label>Name &amp; rank</label><input class="input" id="uName" placeholder="e.g. SI Ananthu Ramesh"></div>
           <div class="field"><label>Role</label><select class="select" id="uRole"><option value="editor">Duty Editor</option><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></div>
-          <div class="field"><label>&nbsp;</label><button class="btn primary" id="uAdd">${ic("userPlus")}Add user</button></div>
+          <div class="field"><label id="uPwLbl">Password (optional)</label><input class="input" id="uPw" type="text" placeholder="Temporary password" autocomplete="off"></div>
+          <div class="field full"><button class="btn primary" id="uAdd">${ic("userPlus")}Add user</button></div>
         </div>
-        <p class="hint" style="margin:12px 0 0">The officer signs in with “Sign in with Google” using exactly this account. Access can be changed or removed at any time and takes effect within a minute.</p>
+        <p class="hint" id="uHint" style="margin:12px 0 0">The officer signs in with “Sign in with Google” using exactly this Gmail ID. If you also give a password, they can sign in with the Gmail ID + password too.</p>
       </div>
     </div>
     <div class="card">
@@ -54,13 +55,14 @@ function renderUsers(el){
       ${list.map(u=>{
         const locked=u.isOwner||u.email===me;
         return `<tr data-email="${esc(u.email)}" class="${u.status==="Active"?"":"inactive"}">
-          <td><div class="row" style="gap:10px;flex-wrap:nowrap"><div class="avatar" style="width:32px;height:32px;font-size:13px">${esc(initials(u.name||u.email))}</div><div><b>${esc(u.name||"—")}</b>${u.isOwner?` <span class="tag gold">Owner</span>`:""}${u.email===me?` <span class="tag blue">You</span>`:""}<div class="small muted mono">${esc(u.email)}</div></div></div></td>
+          <td><div class="row" style="gap:10px;flex-wrap:nowrap"><div class="avatar" style="width:32px;height:32px;font-size:13px">${esc(initials(u.name||u.email))}</div><div><b>${esc(u.name||"—")}</b>${u.isOwner?` <span class="tag gold">Owner</span>`:""}${u.email===me?` <span class="tag blue">You</span>`:""}<div class="small muted mono">${esc(u.email)}</div>
+            <div class="row" style="gap:4px;margin-top:3px">${u.email.includes("@")?`<span class="tag blue">Google</span>`:""}${u.hasPassword?`<span class="tag violet">Password</span>`:""}${u.mustChange&&u.hasPassword?`<span class="tag amber">Must change</span>`:""}${u.locked?`<span class="tag red">Locked</span>`:""}</div></div></div></td>
           <td>${locked||u.status==="Removed"?roleTag(u.role):`<select class="select sm" data-role>${Object.keys(ROLE_INFO).map(r=>`<option value="${r}" ${r===u.role?"selected":""}>${ROLE_INFO[r].label}</option>`).join("")}</select>`}</td>
           <td>${u.status==="Removed"?`<span class="tag red">Removed</span>`:locked?`<span class="tag green">Active</span>`:`<label class="check"><input type="checkbox" data-active ${u.status==="Active"?"checked":""}> ${u.status}</label>`}</td>
           <td class="small mono">${esc(u.lastLogin||"—")}</td>
           <td class="small mono">${esc(u.lastActivity||"—")}</td>
           <td class="small">${esc(u.addedOn||"")}<div class="muted">${esc(u.addedBy||"")}</div></td>
-          <td>${locked?"":u.status==="Removed"?`<button class="btn sm" data-readd>${ic("restore")}Re-add</button>`:`<button class="icon-only danger" data-remove title="Remove access">${ic("trash")}</button>`}</td>
+          <td><div class="row end" style="gap:2px;flex-wrap:nowrap">${u.status==="Removed"?(locked?"":`<button class="btn sm" data-readd>${ic("restore")}Re-add</button>`):`<button class="icon-only" data-setpw title="${u.hasPassword?"Reset password":"Set password"}">${ic("key")}</button>${locked?"":`<button class="icon-only danger" data-remove title="Remove access">${ic("trash")}</button>`}`}</div></td>
         </tr>`;
       }).join("")||`<tr><td colspan="7"><div class="empty">No users.</div></td></tr>`}</tbody></table></div>`;
     $$("tr[data-email]",el).forEach(tr=>{
@@ -72,6 +74,7 @@ function renderUsers(el){
       const rs=$("[data-role]",tr); if(rs) rs.onchange=()=>save({role:rs.value},`${u.email} is now ${ROLE_INFO[rs.value].label}.`);
       const ac=$("[data-active]",tr); if(ac) ac.onchange=()=>save({status:ac.checked?"Active":"Disabled"},`${u.email} ${ac.checked?"enabled":"disabled"}.`);
       const ra=$("[data-readd]",tr); if(ra) ra.onclick=()=>save({status:"Active"},`${u.email} re-added.`);
+      const sp=$("[data-setpw]",tr); if(sp) sp.onclick=()=>setPasswordModal(u,drawUsers);
       const rm=$("[data-remove]",tr); if(rm) rm.onclick=async()=>{
         if(!await confirmBox({title:"Remove access",message:`Remove <b>${esc(u.email)}</b> from the authorised list? They will be signed out within a minute. Their past activity stays in the logs.`,confirmText:"Remove access",danger:true})) return;
         try{ const r=await api("users.remove",{email:u.email}); toast("Access removed for "+u.email,"success"); drawUsers(r.users); }
@@ -79,15 +82,54 @@ function renderUsers(el){
       };
     });
   };
+  let uType="gmail";
+  $$("#uType button",el).forEach(b=>b.onclick=()=>{
+    uType=b.dataset.t; $$("#uType button",el).forEach(x=>x.classList.toggle("on",x===b));
+    $("#uEmailLbl",el).textContent=uType==="gmail"?"Gmail / Google account *":"Username *";
+    $("#uEmail",el).placeholder=uType==="gmail"?"officer@gmail.com":"e.g. si.ananthu";
+    $("#uPwLbl",el).textContent=uType==="gmail"?"Password (optional)":"Temporary password *";
+    $("#uHint",el).textContent=uType==="gmail"?"The officer signs in with “Sign in with Google” using exactly this Gmail ID. If you also give a password, they can sign in with the Gmail ID + password too.":"The officer signs in with this username and the temporary password, and must choose their own password at the first sign-in. Username: 3–32 small letters, numbers, dot, dash or underscore.";
+  });
   $("#uAdd",el).onclick=async()=>{
-    const email=$("#uEmail",el).value.trim().toLowerCase(), name=$("#uName",el).value.trim(), role=$("#uRole",el).value;
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("Enter a valid Gmail address.","warn"); return; }
-    try{ const r=await api("users.save",{email,name,role,status:"Active"}); toast(`${email} can now sign in as ${ROLE_INFO[role].label}.`,"success"); $("#uEmail",el).value=""; $("#uName",el).value=""; drawUsers(r.users); }
+    const email=$("#uEmail",el).value.trim().toLowerCase(), name=$("#uName",el).value.trim(), role=$("#uRole",el).value, password=$("#uPw",el).value;
+    if(uType==="gmail"&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("Enter a valid Gmail address.","warn"); return; }
+    if(uType==="user"&&!/^[a-z0-9._-]{3,32}$/.test(email)){ toast("Username: 3–32 small letters, numbers, dot, dash or underscore (no spaces).","warn"); return; }
+    if(uType==="user"&&!password){ toast("Give a temporary password for a username account.","warn"); return; }
+    if(password&&(password.length<8||!/[A-Za-z]/.test(password)||!/[0-9]/.test(password))){ toast("Password must be at least 8 characters with letters and numbers.","warn"); return; }
+    try{ const r=await api("users.save",{email,name,role,status:"Active",password}); toast(`${email} can now sign in as ${ROLE_INFO[role].label}.`+(password?" Share the temporary password privately.":""),"success"); $("#uEmail",el).value=""; $("#uName",el).value=""; $("#uPw",el).value=""; drawUsers(r.users); }
     catch(e){ if(isAuthError(e)) return onAuthLost(e); toast(e.message,"error"); }
   };
   $("#uShowRem",el).onchange=e=>{ UI.users.showRemoved=e.target.checked; load(); };
   $("#uReload",el).onclick=load;
   load();
+}
+
+function randomTempPassword(){
+  const a="abcdefghjkmnpqrstuvwxyz", A="ABCDEFGHJKLMNPQRSTUVWXYZ", d="23456789";
+  const pick=s=>s[Math.floor(Math.random()*s.length)];
+  return pick(A)+pick(a)+pick(a)+pick(a)+pick(d)+pick(d)+pick(d)+pick(a)+pick(A);
+}
+function setPasswordModal(u,after){
+  const isGmail=u.email.includes("@");
+  openModal({title:(u.hasPassword?"Reset password — ":"Set password — ")+(u.name||u.email),body:`
+    <p>Login ID: <b class="mono">${esc(u.email)}</b></p>
+    <div class="form-grid">
+      <div class="field full"><label>New temporary password</label><div class="row" style="flex-wrap:nowrap"><input class="input mono" id="spPw" style="flex:1" value="${randomTempPassword()}"><button class="btn sm" id="spGen" type="button">${ic("refresh")}New</button></div></div>
+      <div class="field full"><label class="check"><input type="checkbox" id="spMust" checked> Officer must choose a new password at next sign-in (recommended)</label></div>
+    </div>
+    <p class="hint">Give the password to the officer privately. It is stored only as a secure hash — nobody, including the Administrator, can see it later. Resetting also unlocks an account locked by wrong passwords.</p>`,
+    onOpen:(el)=>{ $("#spGen",el).onclick=()=>{ $("#spPw",el).value=randomTempPassword(); }; },
+    actions:[
+      ...(u.hasPassword&&isGmail?[{label:"Remove password login",cls:"danger",onClick:async(close)=>{ try{ const r=await api("users.setPassword",{email:u.email,clear:true}); close(); toast("Password login removed — Google sign-in only.","success"); after(r.users); }catch(e){ toast(e.message,"error"); } return false; }}]:[]),
+      {label:"Cancel"},
+      {label:"Save password",cls:"primary",icon:"key",onClick:async(close,el)=>{
+        const pw=$("#spPw",el).value.trim();
+        if(pw.length<8||!/[A-Za-z]/.test(pw)||!/[0-9]/.test(pw)){ toast("Password must be at least 8 characters with letters and numbers.","warn"); return false; }
+        try{ const r=await api("users.setPassword",{email:u.email,password:pw,mustChange:$("#spMust",el).checked}); close(); toast("Password saved for "+u.email+".","success"); after(r.users); }
+        catch(e){ if(isAuthError(e)) return onAuthLost(e); toast(e.message,"error"); }
+        return false;
+      }}
+    ]});
 }
 
 /* =======================================================================

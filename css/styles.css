@@ -60,6 +60,18 @@ svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .demo-other input{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(159,176,201,.3);border-radius:8px;padding:8px 10px;color:#fff;}
 .demo-other button{background:transparent;border:1px solid rgba(159,176,201,.4);color:#cfe0f5;border-radius:8px;padding:8px 12px;cursor:pointer;}
 
+.pw-login{margin-top:4px;text-align:left;}
+.login-or{display:flex;align-items:center;gap:10px;margin:18px 0 14px;color:#8fa1bb;font-size:11.5px;letter-spacing:1px;text-transform:uppercase;}
+.login-or::before,.login-or::after{content:"";flex:1;height:1px;background:rgba(159,176,201,.22);}
+.pw-input{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(159,176,201,.3);border-radius:10px;padding:11px 12px;color:#fff;font-size:14px;outline:none;margin-bottom:10px;}
+.pw-input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(127,231,222,.15);}
+.pw-input::placeholder{color:#8193ad;}
+.pw-wrap{position:relative;}
+.pw-wrap .pw-input{padding-right:44px;}
+.pw-eye{position:absolute;right:6px;top:5px;background:none;border:none;color:#9fb0c9;cursor:pointer;font-size:16px;padding:6px 8px;}
+.pw-btn{width:100%;background:linear-gradient(90deg,var(--gold),#d9ab4b);color:#231803;border:none;border-radius:10px;padding:11px;font-weight:700;font-size:14px;cursor:pointer;letter-spacing:.3px;}
+.pw-btn:hover{filter:brightness(1.06);}
+.pw-btn:disabled{opacity:.6;cursor:wait;}
 .spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(127,231,222,.25);border-top-color:var(--cyan);animation:spin .8s linear infinite;display:inline-block;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
@@ -298,6 +310,9 @@ tr.row-selected td{background:#eef4ff !important;}
 .parade-chip-item .pc-name{flex:1;font-weight:500;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .parade-chip-item .pc-reason{color:var(--muted);font-size:11px;white-space:nowrap;}
 .parade-chip-item.manual .pc-reason{color:var(--gold-2);font-weight:600;}
+.parade-chip-item.custom{border-color:var(--violet);background:#fbf8ff;}
+.parade-chip-item.custom .pc-reason{color:var(--violet);font-weight:600;}
+.parade-chip-item .pc-reason-edit{flex:1.2;min-width:120px;max-width:260px;}
 
 table.parade-statement td{vertical-align:middle;}
 table.parade-statement td.ps-names{line-height:1.7;font-weight:600;}

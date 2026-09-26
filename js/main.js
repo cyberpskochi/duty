@@ -23,8 +23,21 @@ function showLogin(message){
   const err=$("#loginError");
   if(message){ err.textContent=message; err.hidden=false; } else err.hidden=true;
   if(DEMO) renderDemoLogin(); else initGSI();
+  wirePasswordLogin();
+}
+function wirePasswordLogin(){
+  const f=$("#pwLogin"); if(!f||f.dataset.wired) return;
+  f.dataset.wired="1";
+  $("#pwEye").onclick=()=>{ const i=$("#pwPass"); i.type=i.type==="password"?"text":"password"; };
+  f.onsubmit=e=>{
+    e.preventDefault();
+    const u=$("#pwUser").value.trim(), pw=$("#pwPass").value;
+    if(!u||!pw){ loginError("Enter your username and password."); return; }
+    doLogin({username:u,password:pw},"auth.passwordLogin");
+  };
 }
 function loginBusy(msg){
+  const pb=$("#pwGo"); if(pb){ pb.disabled=!!msg; }
   $("#loginLoading").hidden=!msg;
   if(msg) $("#loginLoading").innerHTML=`<span class="spinner"></span> ${esc(msg)}`;
   $("#gsiButton").style.display=msg?"none":"flex";
@@ -80,17 +93,26 @@ async function fetchPublicIp(){
   }catch(e){ CLIENT_IP=""; }
 }
 
-async function doLogin(creds){
-  loginBusy("Verifying your Google account…");
+async function doLogin(creds,action){
+  action=action||"auth.login";
+  loginBusy(action==="auth.passwordLogin"?"Checking username and password…":"Verifying your Google account…");
   $("#loginError").hidden=true;
   await fetchPublicIp();
   try{
-    const r=await api("auth.login",creds);
+    const r=await api(action,creds);
     saveSession({token:r.session,user:r.user});
+    const pp=$("#pwPass"); if(pp) pp.value="";
+    if(r.user&&r.user.mustChangePassword){
+      loginBusy(null);
+      const ok=await changePasswordDialog({forced:true,oldHint:creds.password||""});
+      if(!ok){ clearSession(); showLogin("Password not changed — please sign in again."); return; }
+      SESSION.user.mustChangePassword=false; saveSession(SESSION);
+    }
     enterApp();
   }catch(e){
     loginError(e.code==="NETWORK"?"Cannot reach the server. Check the internet connection and try again.":e.message);
     if(DEMO) renderDemoLogin();
+    loginBusy(null);
   }
 }
 
@@ -101,6 +123,37 @@ function onAuthLost(e){
   saveCache();
   openModal({title:"Session expired",dismissable:false,body:`<p>${esc(e&&e.message||"Please sign in again.")}</p><p class="hint">Any unsaved changes are kept on this device and will be sent to Google Drive after you sign in again.</p>`,
     actions:[{label:"Sign in again",cls:"primary",icon:"key",onClick:(close)=>{ close(); authModalOpen=false; stopTimers(); if(SESSION){ SESSION.token=null; } showLogin(); }}]});
+}
+
+/* Change (or, when forced, set a new) password for the signed-in user. */
+function changePasswordDialog({forced=false,oldHint=""}={}){
+  return new Promise(resolve=>{
+    let done=false;
+    const m=openModal({
+      title:forced?"Set your new password":"Change password",
+      dismissable:!forced,
+      body:`${forced?`<p>Your password was set by the Administrator. Please choose your own password to continue.</p>`:`<p class="hint">If you sign in only with Google and have no password yet, leave “Current password” blank to create one.</p>`}
+        <div class="form-grid">
+          <div class="field full"${forced?' hidden':''}><label>Current password</label><input class="input" type="password" id="cpOld" autocomplete="current-password" value="${esc(oldHint)}"></div>
+          <div class="field"><label>New password</label><input class="input" type="password" id="cpNew" autocomplete="new-password"></div>
+          <div class="field"><label>Confirm new password</label><input class="input" type="password" id="cpNew2" autocomplete="new-password"></div>
+        </div>
+        <p class="hint" style="margin-top:10px">At least 8 characters, with letters and numbers. Do not share your password.</p>`,
+      actions:[
+        ...(forced?[{label:"Sign out",onClick:c=>{ done=true; c(); resolve(false); }}]:[{label:"Cancel",onClick:c=>{ done=true; c(); resolve(false); }}]),
+        {label:"Save password",cls:"primary",icon:"key",onClick:async(close,el)=>{
+          const o=$("#cpOld",el).value, n=$("#cpNew",el).value, n2=$("#cpNew2",el).value;
+          if(n.length<8||!/[A-Za-z]/.test(n)||!/[0-9]/.test(n)){ toast("Password must be at least 8 characters with letters and numbers.","warn"); return false; }
+          if(n!==n2){ toast("The two new passwords do not match.","warn"); return false; }
+          try{ await api("auth.changePassword",{oldPassword:o,newPassword:n}); done=true; close(); toast("Password saved.","success"); resolve(true); }
+          catch(e){ toast(e.message,"error"); }
+          return false;
+        }}
+      ]
+    });
+    const obs=new MutationObserver(()=>{ if(!document.body.contains(m.el)){ obs.disconnect(); if(!done) resolve(false); } });
+    obs.observe($("#modalRoot"),{childList:true});
+  });
 }
 
 async function logout(){
@@ -130,9 +183,10 @@ function renderNav(){
 function renderShellUser(){
   const u=USER();
   const av=u.picture?`<img src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">`:esc(initials(u.name||u.email));
-  $("#sideUser").innerHTML=`<div class="avatar">${av}</div><div class="who"><b>${esc(u.name||u.email)}</b><span>${esc(u.email)}</span></div><button id="logoutBtn" title="Sign out">${ic("logout")}</button>`;
+  $("#sideUser").innerHTML=`<div class="avatar">${av}</div><div class="who"><b>${esc(u.name||u.email)}</b><span>${esc(u.email)}</span></div><button id="pwBtn" title="Change password">${ic("key")}</button><button id="logoutBtn" title="Sign out">${ic("logout")}</button>`;
   $("#userChip").innerHTML=`<div class="avatar">${av}</div><div class="meta"><b>${esc(u.name||u.email)}</b>${roleTag(u.role)}</div>`;
   $("#logoutBtn").onclick=logout;
+  $("#pwBtn").onclick=()=>changePasswordDialog();
   $("#crumb").textContent=`${settings().stationName} · ${settings().stationCity}`;
 }
 function renderBanner(){
@@ -234,6 +288,7 @@ async function enterApp(){
     data=await api("data.bootstrap",{});
   }catch(e){
     if(isAuthError(e)){ clearSessionTokenOnly(); showLogin(e.message); return; }
+    if(e.code==="PASSWORD_CHANGE"){ const ok=await changePasswordDialog({forced:true}); if(ok){ enterApp(); } else { clearSession(); showLogin(); } return; }
     const cache=readCache();
     if(cache&&cache.state&&cache.email===USER().email){
       S=cache.state; restoreQueued(cache);

@@ -135,6 +135,7 @@ function defaultCore(){
       {name:"Course / Training",category:"duty"},{name:"PSO",category:"duty"},{name:"Special Event Duty",category:"duty"}
     ],
     paradeOverrides:{},
+    paradeMeta:{},
     usedTipIndices:[],
     tipsVersion:TIPS_VERSION,
     tips:(window.CYBER_TIPS_365||[]).slice(),
@@ -142,7 +143,7 @@ function defaultCore(){
     meta:{rosterOrdered:true, createdAt:new Date().toISOString()}
   };
 }
-const CORE_KEYS = ["dutyOrder","strengthTable","personnel","dutyTypes","paradeOverrides","usedTipIndices","tipsVersion","tips","settings","meta"];
+const CORE_KEYS = ["dutyOrder","strengthTable","personnel","dutyTypes","paradeOverrides","paradeMeta","usedTipIndices","tipsVersion","tips","settings","meta"];
 
 /* ------------------------------------------------------------ utilities */
 const $ = (sel,root=document)=>root.querySelector(sel);
@@ -446,6 +447,7 @@ function migrateState(st){
   if(!st.attendance) st.attendance={};
   if(!st.usedTipIndices) st.usedTipIndices=[];
   if(!st.paradeOverrides) st.paradeOverrides={};
+  if(!st.paradeMeta) st.paradeMeta={};
   if(!st.meta) st.meta={};
 
   // settings
