@@ -186,6 +186,8 @@ function attendanceTitle(sheet){ return `Attendance ${dateDash(dateFromKey(sheet
 
 /* ------------------------------------------------------------ delivery */
 async function deliverReport(blob,filename,driveType){
+  const pending=Sync.dirty.size+(Sync.inflight?1:0);
+  if(pending) toast(`Note: ${Sync.dirty.size||"some"} change(s) are still being saved to Google Drive. The file shows what is on your screen.`,"warn",8000);
   downloadBlob(blob,filename);
   logEvent("Reports","Export "+(filename.split(".").pop()||"").toUpperCase(),filename);
   if(settings().saveReportsToDrive&&!DEMO&&SESSION){

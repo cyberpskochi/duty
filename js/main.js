@@ -195,10 +195,19 @@ function renderBanner(){
   if(DEMO) h+=`<div class="banner demo">${ic("info")}<span class="grow"><b>Demo mode.</b> Data is saved only in this browser. Put your Google Client ID and Apps Script URL in <span class="mono">js/config.js</span> to store everything in Google Drive.</span></div>`;
   if(Sync.status==="offline"&&!DEMO) h+=`<div class="banner offline">${ic("cloudOff")}<span class="grow"><b>Offline — changes are stored on this device.</b> ${Sync.dirty.size} change(s) waiting to be saved to Google Drive. ${esc(Sync.lastError||"")}</span><button class="btn sm" id="retrySync">${ic("refresh")}Retry sync</button></div>`;
   if(S&&S.__notInitialised) h+=`<div class="banner warn">${ic("alert")}<span class="grow">The database has not been initialised yet. An Administrator must sign in once to create it.</span></div>`;
+  if(Sync.failed&&Sync.failed.length){
+    const list=Sync.failed.slice(-6).reverse().map(f=>`<li><b>${esc(f.label)}</b> — ${esc(f.msg)}</li>`).join("");
+    h+=`<div class="banner offline" style="align-items:flex-start">${ic("alert")}<div class="grow"><b>${Sync.failed.length} change(s) were NOT saved to Google Drive.</b> Please check and enter them again.<ul style="margin:6px 0 0;padding-left:18px">${list}</ul></div><button class="btn sm" id="dismissFailed">I have checked</button></div>`;
+  }
+  if(!DEMO&&Sync.status==="saving"&&Sync.dirty.size+Sync.audit.length>0&&Sync.savingSince&&Date.now()-Sync.savingSince>15000){
+    h+=`<div class="banner warn">${ic("clock")}<span class="grow"><b>Still saving to Google Drive (slow internet)…</b> Please don't close this page yet.</span></div>`;
+  }
   b.innerHTML=h;
   const r=$("#retrySync"); if(r) r.onclick=()=>{ Sync.retryDelay=4000; flush(); };
+  const df=$("#dismissFailed"); if(df) df.onclick=()=>{ Sync.failed=[]; renderBanner(); };
 }
 function tickClock(){
+  if(Sync.status==="saving") renderBanner();
   const c=$("#clock"); if(!c) return;
   const n=new Date();
   c.textContent=n.toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric"})+" · "+pad(n.getHours())+":"+pad(n.getMinutes());
@@ -324,7 +333,7 @@ async function enterApp(){
   UI.page=page; renderPage();
   stopTimers();
   pollTimer=setInterval(poll,Math.max(15,Number(CFG.POLL_SECONDS)||40)*1000);
-  clockTimer=setInterval(tickClock,20000); tickClock();
+  clockTimer=setInterval(tickClock,5000); tickClock();
 }
 function restoreQueued(cache,auditOnly){
   if(!auditOnly) (cache.dirty||[]).forEach(p=>Sync.dirty.add(p));

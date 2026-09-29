@@ -516,7 +516,7 @@ function migrateState(st){
 }
 
 /* ------------------------------------------------------------ sync engine */
-const Sync={dirty:new Set(),audit:[],activity:[],inflight:false,again:false,timer:null,retryTimer:null,
+const Sync={dirty:new Set(),audit:[],activity:[],failed:[],inflight:false,again:false,timer:null,retryTimer:null,
   status:"idle",lastSaved:null,lastError:"",retryDelay:4000,pendingRefresh:false};
 
 /* Duty-chart edit lock: earlier dates, and today's chart after the lock hour
@@ -567,34 +567,37 @@ async function flush(){
   Sync.inflight=true; setSyncStatus("saving");
   const paths=compressPaths([...Sync.dirty]); Sync.dirty.clear();
   const audits=Sync.audit.splice(0); const acts=Sync.activity.splice(0);
+  let requeued=false;
+  const requeue=(list)=>{ list.forEach(p=>Sync.dirty.add(p)); Sync.audit.unshift(...audits); Sync.activity.unshift(...acts); requeued=true; };
   try{
-    if(paths.length||audits.length){
-      const changes=paths.map(p=>({path:p,value:clone(getPath(S,p))??null}));
-      const r=await api("data.save",{baseVersion:S.version,changes,audit:audits});
-      const othersChanged=r.prevVersion!==S.version;
-      S.version=r.version;
-      if(othersChanged) Sync.pendingRefresh=true;
+    try{
+      if(paths.length||audits.length){
+        const changes=paths.map(p=>({path:p,value:clone(getPath(S,p))??null}));
+        const r=await api("data.save",{baseVersion:S.version,changes,audit:audits});
+        if(r.prevVersion!==S.version) Sync.pendingRefresh=true;
+        S.version=r.version;
+      }
+    }catch(e){
+      if(e.code!=="FORBIDDEN"&&e.code!=="BAD_REQUEST") throw e;
+      // The server refused something in this batch. Never throw the whole
+      // batch away: save every change on its own, so only the refused item
+      // is lost and every other duty entry still reaches Google Drive.
+      const res=await saveOneByOne(paths,audits,requeue);
+      recordFailures(res.failed);
     }
     if(acts.length) await api("logs.activity",{entries:acts});
     Sync.lastSaved=new Date(); Sync.lastError=""; Sync.retryDelay=4000;
     setSyncStatus("saved");
   }catch(e){
-    if(e.code==="FORBIDDEN"||e.code==="BAD_REQUEST"){
-      toast("Change not saved: "+e.message,"error",7000);
-      reportError("Sync","Save rejected",e);
-      Sync.pendingRefresh=true;
-      setSyncStatus("saved");
-    }else{
-      paths.forEach(p=>Sync.dirty.add(p)); Sync.audit.unshift(...audits); Sync.activity.unshift(...acts);
-      Sync.lastError=e.message;
-      if(isAuthError(e)){ setSyncStatus("offline"); onAuthLost(e); }
-      else{
-        setSyncStatus("offline");
-        if(e.code!=="NETWORK") reportError("Google Drive","Save",e);
-        clearTimeout(Sync.retryTimer);
-        Sync.retryTimer=setTimeout(flush,Sync.retryDelay);
-        Sync.retryDelay=Math.min(Sync.retryDelay*2,60000);
-      }
+    if(!requeued) requeue(paths);
+    Sync.lastError=e.message;
+    if(isAuthError(e)){ setSyncStatus("offline"); onAuthLost(e); }
+    else{
+      setSyncStatus("offline");
+      if(e.code!=="NETWORK") reportError("Google Drive","Save",e);
+      clearTimeout(Sync.retryTimer);
+      Sync.retryTimer=setTimeout(flush,Sync.retryDelay);
+      Sync.retryDelay=Math.min(Sync.retryDelay*2,60000);
     }
   }finally{
     Sync.inflight=false;
@@ -604,7 +607,47 @@ async function flush(){
   }
 }
 
+/* Saves each path separately; returns the ones the server refused.
+   A network error part-way re-queues everything not yet saved. */
+async function saveOneByOne(paths,audits,requeue){
+  const failed=[];
+  for(let i=0;i<paths.length;i++){
+    const p=paths[i];
+    try{
+      const r=await api("data.save",{baseVersion:S.version,changes:[{path:p,value:clone(getPath(S,p))??null}],audit:[]});
+      if(r.prevVersion!==S.version) Sync.pendingRefresh=true;
+      S.version=r.version;
+    }catch(e){
+      if(e.code==="FORBIDDEN"||e.code==="BAD_REQUEST"){ failed.push({path:p,msg:e.message,time:new Date()}); continue; }
+      requeue(paths.slice(i)); throw e;
+    }
+  }
+  if(audits.length){ try{ await api("data.save",{changes:[],audit:audits}); }catch(e){} }
+  return {failed};
+}
+
+function pathLabel(p){
+  const parts=p.split("/");
+  if(parts[0]==="records"&&parts[1]){
+    const d=dateDisplay(dateFromKey(parts[1]));
+    if(parts[2]==="assignments"&&parts[3]){ const per=personById(parts[3]); return `Duty chart ${d} · ${per?displayRank(per.rank)+" "+per.name:parts[3]}`; }
+    return "Duty chart "+d;
+  }
+  const names={paradeMeta:"Friday Parade heading / reasons",paradeOverrides:"Friday Parade",attendance:"Attendance register",personnel:"Personnel roster",dutyOrder:"Duty priority order",dutyTypes:"Duty types",strengthTable:"Strength table",settings:"Settings",tips:"Cyber tips"};
+  return (names[parts[0]]||parts[0])+(parts[1]&&parts[0]!=="records"?" ("+parts[1]+")":"");
+}
+function recordFailures(failed){
+  if(!failed.length) return;
+  const fresh=failed.map(f=>Object.assign(f,{label:pathLabel(f.path)}));
+  Sync.failed=(Sync.failed||[]).filter(o=>!fresh.some(f=>f.path===o.path)).concat(fresh).slice(-30);
+  failed.forEach(f=>reportError("Sync","Save refused: "+f.label,f.msg));
+  Sync.pendingRefresh=true;
+  toast(`${failed.length} change(s) were NOT saved to Google Drive — see the red notice at the top.`,"error",12000);
+}
+
 function setSyncStatus(st){
+  if(st==="saving"&&Sync.status!=="saving") Sync.savingSince=Date.now();
+  if(st!=="saving") Sync.savingSince=0;
   Sync.status=st;
   const pill=$("#syncPill"); if(!pill) return;
   pill.className="sync-pill";
@@ -656,7 +699,11 @@ function applySnapshot(data,{keepLocal=true}={}){
   if(canEdit()){
     if(fresh&&canAdmin()){ CORE_KEYS.forEach(k=>Sync.dirty.add(k)); audit("System","Initialise database","Default roster & settings","","30 officers"); }
     else{
-      mig.changed.forEach(k=>{ if(!["personnel","dutyOrder","settings","meta"].includes(k)||canAdmin()) Sync.dirty.add(k); });
+      mig.changed.forEach(k=>{
+        // don't send sections that only gained an empty default (older servers may not know them)
+        const v=S[k]; if(v&&typeof v==="object"&&!Array.isArray(v)&&!Object.keys(v).length) return;
+        if(!["personnel","dutyOrder","settings","meta"].includes(k)||canAdmin()) Sync.dirty.add(k);
+      });
       mig.changedRecords.forEach(k=>{ if(!isDateLocked(k)) Sync.dirty.add("records/"+k); });
     }
     if(Sync.dirty.size) scheduleFlush(1500);
