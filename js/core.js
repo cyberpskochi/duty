@@ -390,12 +390,28 @@ function ensureRecord(key){
 function peekAssignment(key,pid){ const r=S.records[key]; return (r&&r.assignments&&r.assignments[pid])||null; }
 function dutyOf(key,pid){ const a=peekAssignment(key,pid); return a?(a.duty||"").trim():""; }
 
+// Custom duty types (category "duty") take part in the priority order using the key "c:<name>".
+function customDutyKey(name){ return "c:"+String(name||"").trim().toLowerCase(); }
+function customDutyCategories(src){
+  return ((src||S||{}).dutyTypes||[]).filter(d=>d&&d.name&&d.category!=="off").map(d=>({key:customDutyKey(d.name),label:d.name,custom:true}));
+}
 function orderedDutyCategories(){
-  const byKey={}; DUTY_CATEGORIES.forEach(c=>byKey[c.key]=c);
+  const all=DUTY_CATEGORIES.concat(customDutyCategories());
+  const byKey={}; all.forEach(c=>byKey[c.key]=c);
   const order=(S&&Array.isArray(S.dutyOrder))?S.dutyOrder:[];
-  const out=order.map(k=>byKey[k]).filter(Boolean);
-  DUTY_CATEGORIES.forEach(c=>{ if(!out.includes(c)) out.push(c); });
+  const out=order.map(k=>byKey[k]).filter((c,i,a)=>c&&a.indexOf(c)===i);
+  all.forEach(c=>{ if(!out.includes(c)) out.push(c); });
   return out;
+}
+// Add / remove a custom duty type in the saved priority order (new types go to the end).
+function addCustomToDutyOrder(name){
+  const k=customDutyKey(name);
+  if(!Array.isArray(S.dutyOrder)) S.dutyOrder=[];
+  if(!S.dutyOrder.includes(k)){ S.dutyOrder.push(k); if(canReorderDuties()) markDirty("dutyOrder"); }
+}
+function removeCustomFromDutyOrder(name){
+  const k=customDutyKey(name);
+  if(Array.isArray(S.dutyOrder)&&S.dutyOrder.includes(k)){ S.dutyOrder=S.dutyOrder.filter(x=>x!==k); if(canReorderDuties()) markDirty("dutyOrder"); }
 }
 function isOffDuty(name){
   const n=(name||"").trim().toLowerCase(); if(!n) return false;
@@ -455,12 +471,6 @@ function migrateState(st){
   st.settings.permissions=Object.assign(clone(DEFAULT_SETTINGS.permissions),(st.settings.permissions)||{});
   if(!st.settings.attendanceCodes) st.settings.attendanceCodes={};
 
-  // duty order
-  const known=new Set(DUTY_CATEGORIES.map(c=>c.key));
-  if(!Array.isArray(st.dutyOrder)||!st.dutyOrder.length) st.dutyOrder=def.dutyOrder.slice();
-  st.dutyOrder=st.dutyOrder.filter((k,i,a)=>known.has(k)&&a.indexOf(k)===i);
-  DUTY_CATEGORIES.forEach(c=>{ if(!st.dutyOrder.includes(c.key)) st.dutyOrder.push(c.key); });
-
   // records: legacy labels
   Object.keys(st.records).forEach(k=>{
     const r=st.records[k]; if(!r||!r.assignments) return;
@@ -506,6 +516,13 @@ function migrateState(st){
   LEGACY_OFF_LABELS.forEach(l=>{ if(used.has(l)&&!known2(l)) st.dutyTypes.push({name:l,category:"off"}); });
   LEGACY_DUTY_LABELS.forEach(l=>{ if(used.has(l)&&!known2(l)) st.dutyTypes.push({name:l,category:"duty"}); });
   used.forEach(l=>{ if(!known2(l)) st.dutyTypes.push({name:l,category:/rest|leave|off/i.test(l)?"off":"duty"}); });
+
+  // duty priority order (standard + custom duty types)
+  const allDuty=DUTY_CATEGORIES.concat(customDutyCategories(st));
+  const known=new Set(allDuty.map(c=>c.key));
+  if(!Array.isArray(st.dutyOrder)||!st.dutyOrder.length) st.dutyOrder=def.dutyOrder.slice();
+  st.dutyOrder=st.dutyOrder.filter((k,i,a)=>known.has(k)&&a.indexOf(k)===i);
+  allDuty.forEach(c=>{ if(!st.dutyOrder.includes(c.key)) st.dutyOrder.push(c.key); });
 
   // tips
   if(!st.tips||!st.tips.length){ st.tips=def.tips; st.tipsVersion=TIPS_VERSION; }
