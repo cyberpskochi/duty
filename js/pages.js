@@ -304,7 +304,6 @@ function buildDutyOptions(current){
   const esc2=esc;
   let h=`<option value="">— Not assigned —</option><optgroup label="Duty">`;
   orderedDutyCategories().forEach(c=>h+=`<option value="${esc2(c.label)}">${esc2(c.label)}</option>`);
-  (S.dutyTypes||[]).filter(d=>d.category!=="off").forEach(d=>h+=`<option value="${esc2(d.name)}">${esc2(d.name)}</option>`);
   h+=`</optgroup><optgroup label="Off duty / Leave / Rest">`;
   allOffLabels().forEach(l=>h+=`<option value="${esc2(l)}">${esc2(l)} (${esc2(codeForOffLabel(l))})</option>`);
   h+=`</optgroup>`;
@@ -337,6 +336,7 @@ async function addDutyTypeFlow(){
   if((S.dutyTypes||[]).some(d=>d.name.toLowerCase()===name.toLowerCase())){ toast("That duty type already exists.","warn"); return name; }
   S.dutyTypes.push({name,category:r.extra.cat==="off"?"off":"duty"});
   markDirty("dutyTypes");
+  if(r.extra.cat!=="off") addCustomToDutyOrder(name);
   audit("Duty Setup","Add duty type",name,"",r.extra.cat==="off"?"Off duty / Leave":"Duty");
   return name;
 }
@@ -913,6 +913,7 @@ function renderSetup(el){
     if(!await confirmBox({title:"Remove duty type",message:`Remove "<b>${esc(name)}</b>" from the dropdown? Past duty charts that used it keep the label.`,confirmText:"Remove",danger:true})) return;
     const d=S.dutyTypes.find(x=>x.name===name);
     S.dutyTypes=S.dutyTypes.filter(x=>x.name!==name); markDirty("dutyTypes");
+    removeCustomFromDutyOrder(name);
     audit("Duty Setup","Remove duty type",name,d&&d.category==="off"?"Off duty / Leave":"Duty","removed");
     renderSetup(el);
   });
@@ -922,6 +923,7 @@ function renderSetup(el){
     if(FIXED_DUTY_LABELS.concat(OFF_DUTY_TYPES).some(d=>d.toLowerCase()===name.toLowerCase())){ toast("That is already a standard duty type.","warn"); return; }
     if(custom.some(d=>d.name.toLowerCase()===name.toLowerCase())){ toast("That duty type already exists.","warn"); return; }
     S.dutyTypes.push({name,category:cat}); markDirty("dutyTypes");
+    if(cat!=="off") addCustomToDutyOrder(name);
     audit("Duty Setup","Add duty type",name,"",cat==="off"?"Off duty / Leave":"Duty");
     renderSetup(el);
   };
@@ -931,7 +933,7 @@ function renderSetup(el){
       const oldIdx=orderedDutyCategories().findIndex(c=>c.key===movedKey);
       S.dutyOrder=$$(".order-item",list).map(li=>li.dataset.key);
       markDirty("dutyOrder");
-      const c=DUTY_CATEGORIES.find(x=>x.key===movedKey);
+      const c=orderedDutyCategories().find(x=>x.key===movedKey);
       audit("Duty Setup","Change duty priority",c?c.label:movedKey,"Position "+(oldIdx+1),"Position "+(S.dutyOrder.indexOf(movedKey)+1));
       renderSetup(el);
     };
