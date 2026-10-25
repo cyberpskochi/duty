@@ -4,8 +4,9 @@
 "use strict";
 
 const ROLE_INFO={
-  admin:{label:"Administrator",desc:"Everything: users & Gmail IDs, roster, duty order, settings, audit logs, backups & restore."},
-  editor:{label:"Duty Editor",desc:"Daily duty charts, attendance, Friday parade, duty types, cyber tips and exports."},
+  superadmin:{label:"Super Administrator",desc:"Everything an Administrator can do, plus: audit logs, and adding / changing / removing Administrators and other Super Administrators."},
+  admin:{label:"Administrator",desc:"Adds & removes users (Gmail IDs), roster, duty order, settings, backups & restore. Cannot see audit logs and cannot change or remove a Super Administrator."},
+  editor:{label:"Duty Editor",desc:"Daily duty charts, attendance, Friday parade, duty types, cyber tips and exports; can add / remove officers on the roster. Cannot authorise new Gmail IDs."},
   viewer:{label:"Viewer",desc:"View duty charts, parade and attendance; export and print. No editing."}
 };
 function roleTag(r){ return `<span class="role-tag role-${r}">${esc((ROLE_INFO[r]||{}).label||r)}</span>`; }
@@ -28,7 +29,7 @@ function renderUsers(el){
         <div class="form-grid">
           <div class="field"><label id="uEmailLbl">Gmail / Google account *</label><input class="input" id="uEmail" placeholder="officer@gmail.com" autocomplete="off" autocapitalize="none"></div>
           <div class="field"><label>Name &amp; rank</label><input class="input" id="uName" placeholder="e.g. SI Ananthu Ramesh"></div>
-          <div class="field"><label>Role</label><select class="select" id="uRole"><option value="editor">Duty Editor</option><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></div>
+          <div class="field"><label>Role</label><select class="select" id="uRole"><option value="editor">Duty Editor</option><option value="viewer">Viewer</option><option value="admin">Administrator</option>${canSuperAdmin()?`<option value="superadmin">Super Administrator</option>`:""}</select></div>
           <div class="field"><label id="uPwLbl">Password (optional)</label><input class="input" id="uPw" type="text" placeholder="Temporary password" autocomplete="off"></div>
           <div class="field full"><button class="btn primary" id="uAdd">${ic("userPlus")}Add user</button></div>
         </div>
@@ -45,29 +46,33 @@ function renderUsers(el){
     <div id="uTable">${loadingBlock("Loading users…")}</div>
   </div>`;
   const load=async()=>{
-    try{ const r=await api("users.list",{}); drawUsers(r.users); }
+    try{ const r=await api("users.list",{}); window.__users=r.users; drawUsers(r.users); }
     catch(e){ if(isAuthError(e)) return onAuthLost(e); $("#uTable",el).innerHTML=`<div class="empty">${ic("alert")}${esc(e.message)}</div>`; }
   };
   const drawUsers=(users)=>{
+    window.__users=users;
     const me=USER().email;
     const list=users.filter(u=>UI.users.showRemoved||u.status!=="Removed");
     $("#uTable",el).innerHTML=`<div class="table-wrap"><table class="data"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last login</th><th>Last activity</th><th>Added</th><th></th></tr></thead><tbody>
       ${list.map(u=>{
-        const locked=u.isOwner||u.email===me;
+        const protectedSA=!canSuperAdmin()&&(u.role==="superadmin"||u.isOwner);   // Administrators cannot touch a Super Administrator
+        const locked=u.isOwner||u.email===me||protectedSA;
+        const roleKeys=Object.keys(ROLE_INFO).filter(r=>canSuperAdmin()||r!=="superadmin");
         return `<tr data-email="${esc(u.email)}" class="${u.status==="Active"?"":"inactive"}">
           <td><div class="row" style="gap:10px;flex-wrap:nowrap"><div class="avatar" style="width:32px;height:32px;font-size:13px">${esc(initials(u.name||u.email))}</div><div><b>${esc(u.name||"—")}</b>${u.isOwner?` <span class="tag gold">Owner</span>`:""}${u.email===me?` <span class="tag blue">You</span>`:""}<div class="small muted mono">${esc(u.email)}</div>
             <div class="row" style="gap:4px;margin-top:3px">${u.email.includes("@")?`<span class="tag blue">Google</span>`:""}${u.hasPassword?`<span class="tag violet">Password</span>`:""}${u.mustChange&&u.hasPassword?`<span class="tag amber">Must change</span>`:""}${u.locked?`<span class="tag red">Locked</span>`:""}</div></div></div></td>
-          <td>${locked||u.status==="Removed"?roleTag(u.role):`<select class="select sm" data-role>${Object.keys(ROLE_INFO).map(r=>`<option value="${r}" ${r===u.role?"selected":""}>${ROLE_INFO[r].label}</option>`).join("")}</select>`}</td>
+          <td>${locked||u.status==="Removed"?roleTag(u.role):`<select class="select sm" data-role>${roleKeys.map(r=>`<option value="${r}" ${r===u.role?"selected":""}>${ROLE_INFO[r].label}</option>`).join("")}</select>`}</td>
           <td>${u.status==="Removed"?`<span class="tag red">Removed</span>`:locked?`<span class="tag green">Active</span>`:`<label class="check"><input type="checkbox" data-active ${u.status==="Active"?"checked":""}> ${u.status}</label>`}</td>
           <td class="small mono">${esc(u.lastLogin||"—")}</td>
           <td class="small mono">${esc(u.lastActivity||"—")}</td>
           <td class="small">${esc(u.addedOn||"")}<div class="muted">${esc(u.addedBy||"")}</div></td>
-          <td><div class="row end" style="gap:2px;flex-wrap:nowrap">${u.status==="Removed"?(locked?"":`<button class="btn sm" data-readd>${ic("restore")}Re-add</button>`):`<button class="icon-only" data-setpw title="${u.hasPassword?"Reset password":"Set password"}">${ic("key")}</button>${locked?"":`<button class="icon-only danger" data-remove title="Remove access">${ic("trash")}</button>`}`}</div></td>
+          <td><div class="row end" style="gap:2px;flex-wrap:nowrap">${u.status==="Removed"?(locked?"":`<button class="btn sm" data-readd>${ic("restore")}Re-add</button>`):`${protectedSA?"":`<button class="icon-only" data-setpw title="${u.hasPassword?"Reset password":"Set password"}">${ic("key")}</button>`}${locked?"":`<button class="icon-only danger" data-remove title="Remove access">${ic("trash")}</button>`}`}</div></td>
         </tr>`;
       }).join("")||`<tr><td colspan="7"><div class="empty">No users.</div></td></tr>`}</tbody></table></div>`;
     $$("tr[data-email]",el).forEach(tr=>{
       const u=users.find(x=>x.email===tr.dataset.email);
       const save=async(patch,msg)=>{
+        if(!canSuperAdmin()&&(u.role==="superadmin"||u.isOwner||patch.role==="superadmin")){ toast("Only a Super Administrator can change a Super Administrator.","warn"); return load(); }
         try{ const r=await api("users.save",Object.assign({email:u.email,name:u.name,role:u.role,status:u.status==="Removed"?"Active":u.status},patch)); toast(msg,"success"); drawUsers(r.users); }
         catch(e){ if(isAuthError(e)) return onAuthLost(e); toast(e.message,"error"); load(); }
       };
@@ -76,6 +81,7 @@ function renderUsers(el){
       const ra=$("[data-readd]",tr); if(ra) ra.onclick=()=>save({status:"Active"},`${u.email} re-added.`);
       const sp=$("[data-setpw]",tr); if(sp) sp.onclick=()=>setPasswordModal(u,drawUsers);
       const rm=$("[data-remove]",tr); if(rm) rm.onclick=async()=>{
+        if(!canSuperAdmin()&&(u.role==="superadmin"||u.isOwner)){ toast("An Administrator cannot remove a Super Administrator.","warn"); return; }
         if(!await confirmBox({title:"Remove access",message:`Remove <b>${esc(u.email)}</b> from the authorised list? They will be signed out within a minute. Their past activity stays in the logs.`,confirmText:"Remove access",danger:true})) return;
         try{ const r=await api("users.remove",{email:u.email}); toast("Access removed for "+u.email,"success"); drawUsers(r.users); }
         catch(e){ if(isAuthError(e)) return onAuthLost(e); toast(e.message,"error"); }
@@ -92,6 +98,9 @@ function renderUsers(el){
   });
   $("#uAdd",el).onclick=async()=>{
     const email=$("#uEmail",el).value.trim().toLowerCase(), name=$("#uName",el).value.trim(), role=$("#uRole",el).value, password=$("#uPw",el).value;
+    if(role==="superadmin"&&!canSuperAdmin()){ toast("Only a Super Administrator can create a Super Administrator.","warn"); return; }
+    const exU=(window.__users||[]).find(x=>x.email===email);
+    if(exU&&!canSuperAdmin()&&(exU.role==="superadmin"||exU.isOwner)){ toast("Only a Super Administrator can change a Super Administrator.","warn"); return; }
     if(uType==="gmail"&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("Enter a valid Gmail address.","warn"); return; }
     if(uType==="user"&&!/^[a-z0-9._-]{3,32}$/.test(email)){ toast("Username: 3–32 small letters, numbers, dot, dash or underscore (no spaces).","warn"); return; }
     if(uType==="user"&&!password){ toast("Give a temporary password for a username account.","warn"); return; }
@@ -141,6 +150,7 @@ const LOG_TYPES={
   error:{label:"Error log",icon:"alert",results:["FAILED","RECOVERED"]}
 };
 function renderLogs(el){
+  if(!canSuperAdmin()){ el.innerHTML=`<div class="card"><div class="empty">${ic("lock")}Audit logs can be viewed by the Super Administrator only.</div></div>`; return; }
   const L=UI.logs;
   el.innerHTML=`<div class="card">
     <div class="tabs" id="lgTabs">${Object.entries(LOG_TYPES).map(([k,v])=>`<button data-t="${k}" class="${L.type===k?"on":""}">${ic(v.icon)}${v.label}</button>`).join("")}</div>
@@ -308,7 +318,7 @@ function renderSettings(el){
       <div class="card-body">
         <label class="check" style="margin-bottom:10px"><input type="checkbox" id="pmPers" ${s.permissions.editorsManagePersonnel?"checked":""}> Duty Editors may add / edit / reorder / transfer officers</label><br>
         <label class="check"><input type="checkbox" id="pmOrder" ${s.permissions.editorsReorderDuties?"checked":""}> Duty Editors may change the duty priority order</label>
-        <p class="hint" style="margin-top:14px">Gmail IDs and roles are managed under <a href="#/users">Users &amp; Access</a>. These rules are also enforced by the server.</p>
+        <p class="hint" style="margin-top:14px">Gmail IDs and roles are managed under <a href="#/users">Users &amp; Access</a> (Super Administrator / Administrator only). These rules are also enforced by the server.</p>
       </div>
     </div>
   </div>

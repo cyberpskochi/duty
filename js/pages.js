@@ -91,16 +91,16 @@ function renderDashboard(el){
       <div class="card-head"><h2>${ic("calendar")}Duty chart completion · last 14 days</h2></div>
       <div class="card-body"><div class="strip">${strip}</div><div class="hint" style="margin-top:10px">Green = every active officer assigned · amber = partly assigned · grey = no chart saved. Click a day to open it.</div></div>
     </div>
-    <div class="card">
-      <div class="card-head"><h2>${ic("activity")}Recent activity</h2><span class="spacer"></span>${canAdmin()?`<button class="btn sm" data-nav="logs">All logs ${ic("chevR")}</button>`:""}</div>
+    ${canSuperAdmin()?`<div class="card">
+      <div class="card-head"><h2>${ic("activity")}Recent activity</h2><span class="spacer"></span>${canSuperAdmin()?`<button class="btn sm" data-nav="logs">All logs ${ic("chevR")}</button>`:""}</div>
       <div class="card-body"><ul class="feed" id="feed"><li><span class="spinner"></span><span class="muted">Loading…</span></li></ul></div>
-    </div>
+    </div>`:""}
   </div>
   <div class="card" style="overflow:hidden;border:none">
     <div class="tip-strip" style="padding:18px 20px">${ic("bulb")}<div><b>Cyber tip of the day <span class="no">#${tip.index===null?"—":tip.index+1}</span></b><div class="txt" style="font-size:14px">${esc(tip.text)}</div></div></div>
   </div>`;
   $$("[data-go]",el).forEach(x=>x.onclick=()=>{ UI.date=dateFromKey(x.dataset.go); navigate("duty"); });
-  api("logs.recent",{limit:8}).then(r=>{
+  if(canSuperAdmin()) api("logs.recent",{limit:8}).then(r=>{
     const f=$("#feed",el); if(!f) return;
     f.innerHTML=(r.rows||[]).length?r.rows.map(x=>`<li><span class="dot"></span><div><div><b>${esc(x.name)}</b> · ${esc(x.action)} <span class="muted">${esc(x.record)}</span></div><div class="t">${esc(x.time)} · ${esc(x.module)}</div></div></li>`).join(""):`<li class="muted">No activity recorded yet.</li>`;
   }).catch(e=>{ const f=$("#feed",el); if(f) f.innerHTML=`<li class="muted">Activity feed unavailable (${esc(e.message)})</li>`; });

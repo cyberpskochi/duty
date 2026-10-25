@@ -91,7 +91,7 @@ const DEFAULT_SETTINGS = {
   expectedStrength:30,
   presentCode:"P",
   attendanceCodes:{},              // off-duty label -> code override
-  permissions:{ editorsManagePersonnel:false, editorsReorderDuties:false },
+  permissions:{ editorsManagePersonnel:true, editorsReorderDuties:false },
   saveReportsToDrive:true,
   seniorDutiesFirst:true,
   editLockHour:12           // non-admins can edit a date's duty chart only until this hour of that date
@@ -320,7 +320,11 @@ let CLIENT_IP="";
 function loadSession(){ try{ SESSION=JSON.parse(lsGet(LS_SESSION)||"null"); }catch(e){ SESSION=null; } return SESSION; }
 function saveSession(s){ SESSION=s; lsSet(LS_SESSION,JSON.stringify(s)); }
 function clearSession(){ SESSION=null; lsDel(LS_SESSION); }
-const USER=()=> (SESSION&&SESSION.user)||{role:"viewer",name:"",email:""};
+const USER=()=>{
+  const u=(SESSION&&SESSION.user)||{role:"viewer",name:"",email:""};
+  // The station owner account is always the Super Administrator.
+  return (u.isOwner&&u.role!=="superadmin")?Object.assign({},u,{role:"superadmin"}):u;
+};
 
 function isAuthError(e){ return e && (e.code==="AUTH_EXPIRED"||e.code==="AUTH_REQUIRED"); }
 function isNetworkError(e){ return e && (e.code==="NETWORK"||e.code==="BUSY"||e.code==="TIMEOUT"); }
@@ -373,10 +377,11 @@ let S=null;                 // all app data (core keys + records + attendance + 
 let LOADED_YEARS=new Set();
 let SERVER_INFO={lastModifiedBy:"",lastModifiedAt:""};
 
-const ROLE_LEVEL={admin:3,editor:2,viewer:1};
+const ROLE_LEVEL={superadmin:4,admin:3,editor:2,viewer:1};
 function roleAtLeast(r){ return (ROLE_LEVEL[USER().role]||0)>=(ROLE_LEVEL[r]||99); }
 const canEdit=()=>roleAtLeast("editor");
-const canAdmin=()=>roleAtLeast("admin");
+const canAdmin=()=>roleAtLeast("admin");            // Super Administrator or Administrator
+const canSuperAdmin=()=>roleAtLeast("superadmin");  // Super Administrator only (audit logs, managing Super Administrators)
 function perms(){ return (S&&S.settings&&S.settings.permissions)||{}; }
 const canManagePersonnel=()=>canAdmin()||(canEdit()&&!!perms().editorsManagePersonnel);
 const canReorderDuties=()=>canAdmin()||(canEdit()&&!!perms().editorsReorderDuties);

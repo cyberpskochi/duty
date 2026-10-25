@@ -10,7 +10,7 @@
 (function () {
   "use strict";
   var KEY = "cyberps.demo.db.v1";
-  var ROLES = { admin: 3, editor: 2, viewer: 1 };
+  var ROLES = { superadmin: 4, admin: 3, editor: 2, viewer: 1 };
   var HEAD = {
     login: ["Timestamp", "Email", "Name", "Event", "Result", "Session", "Browser", "IP", "Details"],
     activity: ["Timestamp", "Email", "Name", "Role", "Module", "Action", "Record", "Old Value", "New Value", "Result", "Session"],
@@ -30,7 +30,8 @@
       db = {
         version: 1, core: {}, records: {}, attendance: {},
         users: [
-          { email: OWNER, name: "Demo Administrator", role: "admin", status: "Active", addedBy: "setup()", addedOn: stamp(), lastLogin: "", lastActivity: "", notes: "Owner account (demo)" },
+          { email: OWNER, name: "Demo Super Administrator", role: "superadmin", status: "Active", addedBy: "setup()", addedOn: stamp(), lastLogin: "", lastActivity: "", notes: "Owner account (demo)" },
+          { email: "demo.admin2@gmail.com", name: "Demo Administrator", role: "admin", status: "Active", addedBy: OWNER, addedOn: stamp(), lastLogin: "", lastActivity: "", notes: "" },
           { email: "demo.editor@gmail.com", name: "Demo Duty Editor", role: "editor", status: "Active", addedBy: OWNER, addedOn: stamp(), lastLogin: "", lastActivity: "", notes: "" },
           { email: "demo.viewer@gmail.com", name: "Demo Viewer", role: "viewer", status: "Active", addedBy: OWNER, addedOn: stamp(), lastLogin: "", lastActivity: "", notes: "" }
         ],
@@ -211,6 +212,7 @@
         need("admin");
         var su = user(db, String(payload.email).toLowerCase());
         if (!su) throw err("User not found.", "BAD_REQUEST");
+        if ((su.role === "superadmin" || su.email === OWNER) && !has("superadmin")) throw err("Only a Super Administrator can change a Super Administrator.", "FORBIDDEN");
         if (payload.clear) { su.pw = ""; su.mustChange = false; activity(db, ctx, { module: "Users", action: "Remove password login", record: su.email }); }
         else { su.pw = demoHash(payload.password); su.mustChange = payload.mustChange !== false; activity(db, ctx, { module: "Users", action: "Set password", record: su.email, newValue: "temporary password" }); }
         out = { users: pubUsers(db) }; break;
@@ -226,8 +228,12 @@
         need("admin");
         var em = String(payload.email || "").trim().toLowerCase();
         if (!(/@/.test(em) ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) : /^[a-z0-9._-]{3,32}$/.test(em))) throw err("Enter a valid Gmail address or username.", "BAD_REQUEST");
-        if ((em === OWNER || em === ctx.email) && (payload.role !== "admin" || payload.status === "Disabled")) throw err("You cannot demote or disable this account.", "BAD_REQUEST");
+        if (payload.role === "superadmin" && !has("superadmin")) throw err("Only a Super Administrator can create a Super Administrator.", "FORBIDDEN");
         var ex = user(db, em);
+        if (ex && (ex.role === "superadmin" || ex.email === OWNER) && !has("superadmin")) throw err("An Administrator cannot change a Super Administrator.", "FORBIDDEN");
+        if (em === OWNER && payload.role !== "superadmin") throw err("The owner account must stay Super Administrator.", "BAD_REQUEST");
+        if ((em === OWNER || em === ctx.email) && payload.status === "Disabled") throw err("You cannot disable this account.", "BAD_REQUEST");
+        if (em === ctx.email && ex && payload.role && payload.role !== ex.role) throw err("You cannot change your own role.", "BAD_REQUEST");
         if (ex) {
           activity(db, ctx, { module: "Users", action: ex.status === "Removed" ? "Re-add user" : "Update user", record: em, oldValue: ex.role + " / " + ex.status, newValue: payload.role + " / " + (payload.status || "Active") });
           ex.role = payload.role; ex.status = payload.status === "Disabled" ? "Disabled" : "Active"; if (payload.name) ex.name = payload.name;
@@ -242,12 +248,13 @@
         var re = user(db, String(payload.email).toLowerCase());
         if (!re) throw err("User not found.", "BAD_REQUEST");
         if (re.email === OWNER || re.email === ctx.email) throw err("This account cannot be removed.", "BAD_REQUEST");
+        if (re.role === "superadmin" && !has("superadmin")) throw err("An Administrator cannot remove a Super Administrator.", "FORBIDDEN");
         activity(db, ctx, { module: "Users", action: "Remove user", record: re.email, oldValue: re.role + " / " + re.status, newValue: "Removed" });
         re.status = "Removed";
         out = { users: pubUsers(db) }; break;
 
       case "logs.query":
-        need("admin");
+        need("superadmin");
         var list = (db[payload.type] || db.activity).slice().reverse();
         var from = payload.from ? new Date(payload.from + "T00:00:00").getTime() : null;
         var to = payload.to ? new Date(payload.to + "T23:59:59").getTime() : null;
@@ -265,6 +272,7 @@
         break;
 
       case "logs.recent":
+        need("superadmin");
         out = { rows: db.activity.slice(-(payload.limit || 8)).reverse().map(function (r) { return { time: r.Timestamp, name: r.Name || r.Email, module: r.Module, action: r.Action, record: r.Record, result: r.Result }; }) };
         break;
 

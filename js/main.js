@@ -11,7 +11,7 @@ const PAGES={
   personnel:{title:"Personnel",icon:"users",group:"Management",render:renderPersonnel},
   setup:{title:"Duty Setup",icon:"list",group:"Management",render:renderSetup},
   users:{title:"Users & Access",icon:"shield",group:"Administration",render:renderUsers,admin:true},
-  logs:{title:"Audit Logs",icon:"logs",group:"Administration",render:renderLogs,admin:true},
+  logs:{title:"Audit Logs",icon:"logs",group:"Administration",render:renderLogs,admin:true,superOnly:true},
   backups:{title:"Backups & Restore",icon:"database",group:"Administration",render:renderBackups,admin:true},
   settings:{title:"Settings",icon:"settings",group:"Administration",render:renderSettings,admin:true}
 };
@@ -174,6 +174,7 @@ function renderNav(){
   const nav=$("#nav"); let group="", h="";
   Object.entries(PAGES).forEach(([k,p])=>{
     if(p.admin&&!canAdmin()) return;
+    if(p.superOnly&&!canSuperAdmin()) return;
     if(p.group!==group){ group=p.group; h+=`<div class="nav-group">${esc(group)}</div>`; }
     h+=`<a href="#/${k}" data-page="${k}" class="${UI.page===k?"active":""}">${ic(p.icon)}<span>${esc(p.title)}</span></a>`;
   });
@@ -228,7 +229,7 @@ function updateHash(){
   if(location.hash!==want) history.replaceState(null,"",want);
 }
 function navigate(page){
-  if(PAGES[page]&&PAGES[page].admin&&!canAdmin()) page="dashboard";
+  if(PAGES[page]&&((PAGES[page].admin&&!canAdmin())||(PAGES[page].superOnly&&!canSuperAdmin()))) page="dashboard";
   UI.page=page;
   const want="#/"+page;
   if(!location.hash.startsWith(want)) history.pushState(null,"",want);
@@ -238,7 +239,7 @@ function renderPage(){
   if(!S) return;
   closePop(); killSortables(); UI.pendingRerender=false;
   const p=PAGES[UI.page]||PAGES.dashboard;
-  if(p.admin&&!canAdmin()){ UI.page="dashboard"; return renderPage(); }
+  if((p.admin&&!canAdmin())||(p.superOnly&&!canSuperAdmin())){ UI.page="dashboard"; return renderPage(); }
   $("#pageTitle").textContent=p.title;
   document.title=`${p.title} — ${reportShort()} Duty Management`;
   $$("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.page===UI.page));
