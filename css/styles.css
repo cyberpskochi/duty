@@ -119,6 +119,7 @@ svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .user-chip .meta{line-height:1.15;}
 .user-chip .meta b{display:block;font-size:13px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .role-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;border-radius:5px;padding:2px 6px;}
+.role-superadmin{background:#f3dcf0;color:#7a1f6d;}
 .role-admin{background:#fbe7d2;color:#8a4a07;}
 .role-editor{background:var(--teal-soft);color:var(--teal-2);}
 .role-viewer{background:#e9edf3;color:#4a5568;}
