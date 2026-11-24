@@ -91,7 +91,7 @@ const DEFAULT_SETTINGS = {
   expectedStrength:30,
   presentCode:"P",
   attendanceCodes:{},              // off-duty label -> code override
-  permissions:{ editorsManagePersonnel:true, editorsReorderDuties:false },
+  permissions:{ editorsManagePersonnel:false, editorsReorderDuties:false },
   saveReportsToDrive:true,
   seniorDutiesFirst:true,
   editLockHour:12           // non-admins can edit a date's duty chart only until this hour of that date
@@ -320,11 +320,7 @@ let CLIENT_IP="";
 function loadSession(){ try{ SESSION=JSON.parse(lsGet(LS_SESSION)||"null"); }catch(e){ SESSION=null; } return SESSION; }
 function saveSession(s){ SESSION=s; lsSet(LS_SESSION,JSON.stringify(s)); }
 function clearSession(){ SESSION=null; lsDel(LS_SESSION); }
-const USER=()=>{
-  const u=(SESSION&&SESSION.user)||{role:"viewer",name:"",email:""};
-  // The station owner account is always the Super Administrator.
-  return (u.isOwner&&u.role!=="superadmin")?Object.assign({},u,{role:"superadmin"}):u;
-};
+const USER=()=> (SESSION&&SESSION.user)||{role:"viewer",name:"",email:""};
 
 function isAuthError(e){ return e && (e.code==="AUTH_EXPIRED"||e.code==="AUTH_REQUIRED"); }
 function isNetworkError(e){ return e && (e.code==="NETWORK"||e.code==="BUSY"||e.code==="TIMEOUT"); }
@@ -377,11 +373,10 @@ let S=null;                 // all app data (core keys + records + attendance + 
 let LOADED_YEARS=new Set();
 let SERVER_INFO={lastModifiedBy:"",lastModifiedAt:""};
 
-const ROLE_LEVEL={superadmin:4,admin:3,editor:2,viewer:1};
+const ROLE_LEVEL={admin:3,editor:2,viewer:1};
 function roleAtLeast(r){ return (ROLE_LEVEL[USER().role]||0)>=(ROLE_LEVEL[r]||99); }
 const canEdit=()=>roleAtLeast("editor");
-const canAdmin=()=>roleAtLeast("admin");            // Super Administrator or Administrator
-const canSuperAdmin=()=>roleAtLeast("superadmin");  // Super Administrator only (audit logs, managing Super Administrators)
+const canAdmin=()=>roleAtLeast("admin");
 function perms(){ return (S&&S.settings&&S.settings.permissions)||{}; }
 const canManagePersonnel=()=>canAdmin()||(canEdit()&&!!perms().editorsManagePersonnel);
 const canReorderDuties=()=>canAdmin()||(canEdit()&&!!perms().editorsReorderDuties);
@@ -393,30 +388,14 @@ function ensureRecord(key){
   return S.records[key];
 }
 function peekAssignment(key,pid){ const r=S.records[key]; return (r&&r.assignments&&r.assignments[pid])||null; }
-function dutyOf(key,pid){ const a=peekAssignment(key,pid); return a?(a.duty||"").trim():""; }
+function dutyOf(key,pid){ const p=personById(pid); if(p&&!onRosterOn(p,key)) return ""; const a=peekAssignment(key,pid); return a?(a.duty||"").trim():""; }
 
-// Custom duty types (category "duty") take part in the priority order using the key "c:<name>".
-function customDutyKey(name){ return "c:"+String(name||"").trim().toLowerCase(); }
-function customDutyCategories(src){
-  return ((src||S||{}).dutyTypes||[]).filter(d=>d&&d.name&&d.category!=="off").map(d=>({key:customDutyKey(d.name),label:d.name,custom:true}));
-}
 function orderedDutyCategories(){
-  const all=DUTY_CATEGORIES.concat(customDutyCategories());
-  const byKey={}; all.forEach(c=>byKey[c.key]=c);
+  const byKey={}; DUTY_CATEGORIES.forEach(c=>byKey[c.key]=c);
   const order=(S&&Array.isArray(S.dutyOrder))?S.dutyOrder:[];
-  const out=order.map(k=>byKey[k]).filter((c,i,a)=>c&&a.indexOf(c)===i);
-  all.forEach(c=>{ if(!out.includes(c)) out.push(c); });
+  const out=order.map(k=>byKey[k]).filter(Boolean);
+  DUTY_CATEGORIES.forEach(c=>{ if(!out.includes(c)) out.push(c); });
   return out;
-}
-// Add / remove a custom duty type in the saved priority order (new types go to the end).
-function addCustomToDutyOrder(name){
-  const k=customDutyKey(name);
-  if(!Array.isArray(S.dutyOrder)) S.dutyOrder=[];
-  if(!S.dutyOrder.includes(k)){ S.dutyOrder.push(k); if(canReorderDuties()) markDirty("dutyOrder"); }
-}
-function removeCustomFromDutyOrder(name){
-  const k=customDutyKey(name);
-  if(Array.isArray(S.dutyOrder)&&S.dutyOrder.includes(k)){ S.dutyOrder=S.dutyOrder.filter(x=>x!==k); if(canReorderDuties()) markDirty("dutyOrder"); }
 }
 function isOffDuty(name){
   const n=(name||"").trim().toLowerCase(); if(!n) return false;
@@ -452,6 +431,10 @@ function codeClass(code){
 
 function personById(id){ return (S.personnel||[]).find(p=>p.id===id); }
 function isActive(p){ return !p.status||p.status==="active"; }
+/** True when the officer belongs on the duty chart of date `key` (yyyy-mm-dd).
+    Transferred / retired / removed officers drop off from their effective date;
+    with no effective date they drop off everywhere. Older charts keep them. */
+function onRosterOn(p,key){ if(!p) return false; if(isActive(p)) return true; return !!(p.statusDate&&key&&key<p.statusDate); }
 function activePersonnel(){ return (S.personnel||[]).filter(isActive); }
 function rosterIndex(id){ const i=(S.personnel||[]).findIndex(p=>p.id===id); return i<0?9999:i; }
 function sortByRank(list){ return list.slice().sort((a,b)=>RANKS.indexOf(baseRank(a.rank))-RANKS.indexOf(baseRank(b.rank))||a.name.localeCompare(b.name)); }
@@ -475,6 +458,12 @@ function migrateState(st){
   st.settings=Object.assign(clone(DEFAULT_SETTINGS),st.settings||{});
   st.settings.permissions=Object.assign(clone(DEFAULT_SETTINGS.permissions),(st.settings.permissions)||{});
   if(!st.settings.attendanceCodes) st.settings.attendanceCodes={};
+
+  // duty order
+  const known=new Set(DUTY_CATEGORIES.map(c=>c.key));
+  if(!Array.isArray(st.dutyOrder)||!st.dutyOrder.length) st.dutyOrder=def.dutyOrder.slice();
+  st.dutyOrder=st.dutyOrder.filter((k,i,a)=>known.has(k)&&a.indexOf(k)===i);
+  DUTY_CATEGORIES.forEach(c=>{ if(!st.dutyOrder.includes(c.key)) st.dutyOrder.push(c.key); });
 
   // records: legacy labels
   Object.keys(st.records).forEach(k=>{
@@ -521,13 +510,6 @@ function migrateState(st){
   LEGACY_OFF_LABELS.forEach(l=>{ if(used.has(l)&&!known2(l)) st.dutyTypes.push({name:l,category:"off"}); });
   LEGACY_DUTY_LABELS.forEach(l=>{ if(used.has(l)&&!known2(l)) st.dutyTypes.push({name:l,category:"duty"}); });
   used.forEach(l=>{ if(!known2(l)) st.dutyTypes.push({name:l,category:/rest|leave|off/i.test(l)?"off":"duty"}); });
-
-  // duty priority order (standard + custom duty types)
-  const allDuty=DUTY_CATEGORIES.concat(customDutyCategories(st));
-  const known=new Set(allDuty.map(c=>c.key));
-  if(!Array.isArray(st.dutyOrder)||!st.dutyOrder.length) st.dutyOrder=def.dutyOrder.slice();
-  st.dutyOrder=st.dutyOrder.filter((k,i,a)=>known.has(k)&&a.indexOf(k)===i);
-  allDuty.forEach(c=>{ if(!st.dutyOrder.includes(c.key)) st.dutyOrder.push(c.key); });
 
   // tips
   if(!st.tips||!st.tips.length){ st.tips=def.tips; st.tipsVersion=TIPS_VERSION; }

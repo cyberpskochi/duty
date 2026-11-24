@@ -13,6 +13,7 @@ function computeDutyBoard(key){
   const otherMap={}, offMap={};
   let onDuty=0, offCount=0;
   (S.personnel||[]).forEach(p=>{
+    if(!onRosterOn(p,key)) return;   // transferred / removed officers are not shown from their effective date
     const a=asg[p.id]; const duty=a?(a.duty||"").trim():"";
     if(!duty) return;
     const item={p,note:a.note||""};
